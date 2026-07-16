@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Instantiate a new evidence corpus from the kit's templates.
 
-  python3 scaffold.py --topic "Auto-research systems" --slug auto-research \
-      --out ~/repos/auto-research-corpus --consumer "who cites this and for what"
+  python3 scaffold.py --topic "Solid-state batteries" --slug ssb \
+      --out ../ssb-corpus --consumer "who has skin in the game, and for what"
 
 Copies templates/corpus/ (substituting {{TOPIC}} {{SLUG}} {{CONSUMER}} {{DATE}}
-{{KIT_COMMIT}}), installs the guard test + its config, and prints next steps.
+{{KIT_COMMIT}} {{KIT_PATH}}), installs the guard test + its config, and prints next steps.
 Refuses a non-empty target. Templates named _*.tmpl are pass-time templates
 (e.g. the subtopic README) and are not instantiated here.
 """
@@ -54,6 +54,7 @@ def main():
         "{{CONSUMER}}": args.consumer,
         "{{DATE}}": datetime.date.today().isoformat(),
         "{{KIT_COMMIT}}": kit_commit(),
+        "{{KIT_PATH}}": KIT,
     }
 
     src_root = os.path.join(KIT, "templates", "corpus")

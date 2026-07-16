@@ -25,8 +25,8 @@ useful, worth reading, but not something to build on without a further check.
 ## Why "official" is not a synonym for "true"
 
 The natural instinct is that vendor/authoritative documentation is the closest thing to fact
-available. It is not. The origin corpus (outrigger, 2026-07) caught official documentation
-wrong or stale **three times, each by direct probe**: a documented cache-TTL model that
+available. It is not. The corpus this method was extracted from caught official documentation
+wrong or stale **three times in one month, each by direct probe**: a documented cache-TTL model that
 subscription auth silently didn't follow; an API documented to "fail loud" on invalid config
 that silently accepted it; a documented JSON field the shipping build measurably lacked.
 

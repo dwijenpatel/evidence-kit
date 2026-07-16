@@ -1,8 +1,8 @@
 """Corpus guard: the corpus stays navigable and whole.
 
 Every relative markdown link must resolve, and the load-bearing files named in
-tests/corpus_guard.json must exist. Portable edition of the outrigger corpus guard
-(evidence-kit); configure via corpus_guard.json, not by editing this file.
+tests/corpus_guard.json must exist. Part of the evidence-kit method; configure via
+corpus_guard.json, not by editing this file.
 
 Run from the corpus root: python3 -m unittest tests.test_reference -q
 """
