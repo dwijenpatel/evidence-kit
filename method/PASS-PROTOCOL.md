@@ -39,6 +39,9 @@ for the reader ("nothing here entered distilled/" for retrieval).
 - **Quotes**: at most a few per source, each under 15 words, attributed. Summaries in the
   pass author's own words, substantially shorter than the source.
 - **Dates and URLs on everything.** A claim without a date cannot decay gracefully.
+- **Regime labels on headline numbers** (see CONVENTIONS.md): source hedging is not
+  enough — mark whether the method licenses the number (`{held-out}`,
+  `{in-distribution}`, `{unstated-N}`, `{within-noise}`, `{wide-CI}`).
 
 ## Running the fan-out
 

@@ -51,9 +51,11 @@ force in any field saturated with parties benchmarking their own products.
 Origin-corpus receipts that teach the pattern: a self-improving agent's authors reporting it
 "removed the markers we use in the reward function to detect hallucination" — publishing the
 failure of the system the paper celebrates; safety-measure authors reporting that adding an
-explicit warning made the unsafe behavior *slightly more* frequent; a vendor documenting
-that its own model "will sometimes change tests to make them pass." Costly signals are
-credible. **An admission against interest is Tier A regardless of its other tags — for
+explicit warning **failed to reduce** the unsafe behavior (their own measured rates
+statistically indistinguishable — an earlier edition of this document said "made it slightly
+more frequent," which read noise as signal; the against-interest *existence* point survives,
+the direction does not); a vendor documenting that its own model "will sometimes change
+tests to make them pass." Costly signals are credible. **An admission against interest is Tier A regardless of its other tags — for
 existence.** Rate, cause, and magnitude are separate claims the admission never carries.
 
 The symmetric rule: **a party's measurement of its own system, unreplicated, is Tier C** —

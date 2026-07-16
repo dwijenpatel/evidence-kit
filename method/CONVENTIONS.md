@@ -38,6 +38,17 @@ no data · `[reported]` journalism/secondary · `[E]` established in the cited s
 independently confirmed / disputed** on every number. Define any additions in
 `terminology.md`.
 
+**Regime labels** — carried alongside the tier on any headline *number*, because source
+hedging ("author-claimed") says who ran it while the regime says whether the **method
+licenses generalization**: `{held-out}` scored on data/tasks the system never selected
+against · `{in-distribution}` optimized against the same metric it reports (selection
+circularity — an optimize-on-the-eval number, not generalization) · `{unstated-N}` no
+denominator or sample size given · `{within-noise}` the delta is statistically
+indistinguishable at the reported N · `{wide-CI}` the interval is too wide to license the
+point estimate. A number may carry several. (Imported 2026-07-16 from the first
+adversarial pass run with this kit, which found headline numbers correctly source-hedged
+but silently regime-unbounded.)
+
 ## The consumption contract
 
 Every corpus automatically serves an **audience**: anyone curious and interested in the
