@@ -36,8 +36,9 @@ def main():
     ap.add_argument("--slug", required=True, help="kebab-case short name")
     ap.add_argument("--out", required=True, help="corpus directory to create")
     ap.add_argument("--consumer", required=True,
-                    help="which decisions cite this corpus (be concrete; "
-                         "'none yet — briefing library' is an honest answer)")
+                    help="what rests weight on this corpus (a decision surface that must "
+                         "cite Tier-A rows; the reader audience is automatic — "
+                         "'audience-only for now' is an honest answer)")
     ap.add_argument("--min-docs", type=int, default=6,
                     help="guard: minimum tracked markdown files (default 6; a bare "
                          "scaffold has 7, so the guard passes before the first pass)")

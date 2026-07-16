@@ -19,9 +19,10 @@ the corpus guard test runs after every doc change.
 
 ## Operation 1 — scaffold (new corpus)
 
-1. Ask (or take from the request) three things: the **topic**, the **consumer** (which
-   decisions will cite this corpus — press for a concrete one; a corpus without a consumer
-   is a bookmark pile and the README must say so honestly), and the **target directory**.
+1. Ask (or take from the request) three things: the **topic**, the **consumer** (what will
+   *rest weight* on this corpus — a decision surface required to cite Tier-A rows; the
+   informed-reader audience is automatic and does not count as a consumer; "audience-only
+   for now" is an honest answer the README must state), and the **target directory**.
 2. Run: `python3 <skill-dir>/scaffold.py --topic "..." --slug <slug> --out <dir> --consumer "..."`
 3. Fill in the scaffolded `distilled/README.md` **decay table for this domain** with the
    operator (universal classes `math` / `human-factors` / `llm-class` usually survive;

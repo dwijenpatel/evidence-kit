@@ -40,13 +40,21 @@ independently confirmed / disputed** on every number. Define any additions in
 
 ## The consumption contract
 
-A corpus earns its upkeep only if something **consumes** it: a named decision surface
-(a design doc, an investment memo, an experiment protocol) that is required to cite
-Tier-A rows — with claims outside distilled/ entering decisions only as *provisional*,
-carrying a named promotion trigger. The corpus README states the consumer in its header.
-If there is no consumer yet, the README says so plainly ("briefing library; the tiers
-grade reliability but nothing is load-bearing yet") — an honest weak contract beats a
-pretended strong one.
+Every corpus automatically serves an **audience**: anyone who wants the rigorous current
+state of the subject, claims weighed by evidence. That use-case needs no declaration — it
+is what the documents are.
+
+The **consumer** is something stronger: a named surface that **rests weight** on the corpus
+and is damaged if a claim is wrong — a design doc, an investment memo, an experiment
+protocol, public claims made to experts. A consumer is required to cite Tier-A rows, with
+claims outside distilled/ entering only as *provisional* with a named promotion trigger.
+The distinction matters because a reader never pushes back — only a consumer disciplines
+which pass runs next, justifies the cost of adversarial grading, and fires the recheck /
+corrections loop that keeps the corpus from rotting into bookmarks.
+
+The corpus README states the consumer in its header. If there is none yet, it says so
+plainly ("audience-only for now — tiers grade reliability, nothing is load-bearing yet") —
+an honest weak contract beats a pretended strong one.
 
 ## Document conventions
 
