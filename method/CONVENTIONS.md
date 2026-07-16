@@ -40,21 +40,24 @@ independently confirmed / disputed** on every number. Define any additions in
 
 ## The consumption contract
 
-Every corpus automatically serves an **audience**: anyone who wants the rigorous current
-state of the subject, claims weighed by evidence. That use-case needs no declaration — it
-is what the documents are.
+Every corpus automatically serves an **audience**: anyone curious and interested in the
+rigorous current state of the subject, claims weighed by evidence — **nothing at stake**.
+That use-case needs no declaration; it is what the documents are.
 
-The **consumer** is something stronger: a named surface that **rests weight** on the corpus
-and is damaged if a claim is wrong — a design doc, an investment memo, an experiment
-protocol, public claims made to experts. A consumer is required to cite Tier-A rows, with
-claims outside distilled/ entering only as *provisional* with a named promotion trigger.
-The distinction matters because a reader never pushes back — only a consumer disciplines
-which pass runs next, justifies the cost of adversarial grading, and fires the recheck /
-corrections loop that keeps the corpus from rotting into bookmarks.
+The **consumer** is the party with **skin in the game**: a named surface that rests weight
+on the corpus and is *damaged if a claim is wrong* — a design doc, an investment memo, an
+experiment protocol, public claims made to experts. A consumer is required to cite Tier-A
+rows, with claims outside distilled/ entering only as *provisional* with a named promotion
+trigger. The distinction matters because a reader never pushes back — only skin in the game
+disciplines which pass runs next, justifies the cost of adversarial grading, and fires the
+recheck / corrections loop that keeps the corpus from rotting into bookmarks. (This is the
+same incentive logic the grading method applies to sources: an admission against interest
+is credible because the speaker has skin in the game. Warrant weighs the source's stake;
+the consumption contract weighs the reader's.)
 
 The corpus README states the consumer in its header. If there is none yet, it says so
-plainly ("audience-only for now — tiers grade reliability, nothing is load-bearing yet") —
-an honest weak contract beats a pretended strong one.
+plainly ("audience-only for now — no skin in the game yet; tiers grade reliability, nothing
+is load-bearing") — an honest weak contract beats a pretended strong one.
 
 ## Document conventions
 
