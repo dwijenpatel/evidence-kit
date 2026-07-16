@@ -1,0 +1,41 @@
+# {{TOPIC}} — evidence corpus
+
+Primary-sourced, graded research corpus on **{{TOPIC}}**, built with **evidence-kit**
+conventions (local kit: `~/repos/evidence-kit`; scaffolded {{DATE}} from kit commit
+`{{KIT_COMMIT}}`; the grading method lives in the kit's `method/GRADING.md` — this corpus's
+decay table is in [distilled/README.md](distilled/README.md)).
+
+**Consumer:** {{CONSUMER}}
+
+**Start at [distilled/](distilled/README.md)** — everything there is Tier A; everything else
+is context. Layout: [external/](external/README.md) (the world's evidence, by subtopic) ·
+[internal/](internal/README.md) (evidence we generated) · [terminology.md](terminology.md)
+(every term and tag defined).
+
+## Pass narrative
+
+<!-- One entry per pass: date, grade, method, what it added. Newest last. -->
+
+- {{DATE}} — corpus scaffolded; no passes yet.
+
+## Corrections ledger
+
+<!-- Dated entries for every falsified, narrowed, or struck claim. Never deleted. -->
+
+*(empty — nothing falsified yet)*
+
+## Recheck schedule (these facts rot)
+
+<!-- Dated triggers: releases promised, live ledgers, policy surfaces. -->
+
+*(none registered yet)*
+
+## Mirrors
+
+Raw artifact mirrors (papers, repo clones, extracted pages, per-topic MANIFEST.md) live
+outside this repo at: `<declare mirror location>`.
+
+## Guard
+
+After any doc change: `python3 -m unittest tests.test_reference -q`
+(every relative markdown link must resolve; load-bearing files must exist).
