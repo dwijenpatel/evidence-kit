@@ -64,6 +64,10 @@ what changed. Re-pull any live external ledgers (leaderboards, status files) bef
 
 ## Guardrails
 
+- If the user wants a one-time answer with no ongoing stake, a deep-research run is the
+  better tool — say so instead of scaffolding a corpus they won't maintain. The corpus
+  earns its upkeep only when the answer must stay true (see README, "If you already use
+  deep research").
 - Never let a pass write into `distilled/` directly; distillation is its own operation.
 - Never delete a corrections-ledger entry; it is the corpus's most trustworthy page.
 - If the operator asks for a conclusion the corpus cannot bear ("is X true?" where holdings
