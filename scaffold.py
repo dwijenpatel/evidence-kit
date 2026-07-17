@@ -41,7 +41,7 @@ def main():
                          "audience is automatic — 'audience-only for now' is honest)")
     ap.add_argument("--min-docs", type=int, default=6,
                     help="guard: minimum tracked markdown files (default 6; a bare "
-                         "scaffold has 7, so the guard passes before the first pass)")
+                         "scaffold has 8, so the guard passes before the first pass)")
     args = ap.parse_args()
 
     out = os.path.abspath(os.path.expanduser(args.out))
@@ -63,7 +63,8 @@ def main():
         for name in filenames:
             if name.startswith("_"):
                 continue  # pass-time template, not scaffold-time
-            body = open(os.path.join(dirpath, name), encoding="utf-8").read()
+            with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                body = fh.read()
             for key, val in subs.items():
                 body = body.replace(key, val)
             dest_name = name[:-5] if name.endswith(".tmpl") else name
@@ -78,7 +79,7 @@ def main():
     with open(os.path.join(out, "tests", "corpus_guard.json"), "w", encoding="utf-8") as fh:
         import json
         json.dump({
-            "required": ["README.md", "terminology.md", "distilled/README.md",
+            "required": ["README.md", "index.md", "terminology.md", "distilled/README.md",
                          "distilled/external.md", "distilled/internal.md",
                          "external/README.md", "internal/README.md"],
             "min_markdown_files": args.min_docs,
