@@ -10,6 +10,7 @@ editing this file.
 Run from the corpus root: python3 -m unittest tests.test_reference -q
 """
 
+import functools
 import json
 import os
 import re
@@ -20,16 +21,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)")
 # OKF reserved filenames (§3.1): not concept documents, exempt from the `type` rule.
 RESERVED = {"index.md", "log.md"}
-TYPE_KEY = re.compile(r"^type:\s*\S", re.MULTILINE)
-OKF_VERSION_KEY = re.compile(r"^okf_version:\s*\S", re.MULTILINE)
+FENCE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$", re.DOTALL | re.MULTILINE)
 
 
 def frontmatter(body):
-    """The text between the opening '---' fence and its closing fence, or None."""
-    if not body.startswith("---\n"):
-        return None
-    end = body.find("\n---", 4)
-    return None if end == -1 else body[4:end + 1]
+    """The text between the opening '---' fence and its closing fence, or None.
+
+    Tolerates CRLF line endings — a Windows-authored doc is still a concept doc.
+    """
+    m = FENCE.match(body)
+    return m.group(1) if m else None
+
+
+def has_key(fm, key):
+    """True if the frontmatter text has a non-empty top-level `key:` line."""
+    return re.search(rf"^{key}:\s*\S", fm, re.MULTILINE) is not None
 
 def load_config(testcase):
     """Load corpus_guard.json inside the test (not at import time), so a missing
@@ -45,8 +51,12 @@ def load_config(testcase):
         testcase.fail(f"guard config is not valid JSON: {path} ({e})")
 
 
+@functools.lru_cache(maxsize=None)
 def tracked_markdown():
-    """Markdown files under version control; filesystem walk if git is absent."""
+    """Markdown files under version control; filesystem walk if git is absent.
+
+    Cached: the file set cannot change mid-run, and the git call is the expensive part.
+    """
     try:
         out = subprocess.run(
             ["git", "-C", ROOT, "ls-files", "*.md"],
@@ -102,16 +112,17 @@ class CorpusLinkTests(unittest.TestCase):
             with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
                 body = fh.read()
             fm = frontmatter(body)
+            if f == "index.md":  # bundle root: the one index allowed frontmatter (§11)
+                if fm is None or not has_key(fm, "okf_version"):
+                    bad.append(f"{f}: bundle-root index.md must declare okf_version")
+                continue
             if os.path.basename(f) in RESERVED:
-                if f == "index.md":  # bundle root: the one index allowed frontmatter
-                    if fm is None or not OKF_VERSION_KEY.search(fm):
-                        bad.append(f"{f}: bundle-root index.md must declare okf_version")
-                elif fm is not None:
+                if fm is not None:
                     bad.append(f"{f}: reserved OKF file must not carry frontmatter")
                 continue
             if fm is None:
                 bad.append(f"{f}: missing YAML frontmatter block")
-            elif not TYPE_KEY.search(fm):
+            elif not has_key(fm, "type"):
                 bad.append(f"{f}: frontmatter lacks a non-empty `type`")
         self.assertEqual(bad, [], "OKF conformance failures:\n" + "\n".join(bad))
 

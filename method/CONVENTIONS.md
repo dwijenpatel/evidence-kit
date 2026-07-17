@@ -4,6 +4,7 @@
 
 ```
 <corpus>/
+  index.md             # OKF bundle-root index: okf_version declaration + top-level listing
   README.md            # index: topic, consumer, pass narrative, corrections ledger,
                        # recheck schedule, mirror pointer
   terminology.md       # every acronym, coined term, and tag defined once
@@ -27,6 +28,49 @@ The split is by **who produced the evidence**, because provenance is the first t
 determines weight: external (we did not run it — strongest replicated or against-interest),
 internal (we ran it — defects strong, wins need artifacts), distilled (Tier A only; start
 here).
+
+## OKF alignment (the corpus is a knowledge bundle)
+
+Every corpus is a conformant **Open Knowledge Format (OKF) v0.1** knowledge bundle
+([spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)):
+any OKF consumer — an index generator, a graph viewer, an agent doing progressive
+disclosure — can read a corpus without knowing anything about the evidence method. The
+method rides on top; the format underneath is plain OKF.
+
+- **Frontmatter.** Every markdown document except OKF's reserved files (`index.md`,
+  `log.md`) opens with YAML frontmatter carrying a non-empty `type`, plus `title`,
+  `description`, and `timestamp` (refreshed whenever a pass meaningfully changes the doc).
+  The kit's type vocabulary: `Corpus` (corpus README) · `Terminology` · `Subtopic Map`
+  (external/README) · `Subtopic` (subtopic README) · `Holdings` (holdings doc) ·
+  `Internal Evidence` · `Distilled Index` (distilled/README) · `Distilled` (the two Tier-A
+  docs). Unknown types are legal OKF; these are the ones consumers of an evidence corpus
+  can rely on.
+- **Extension keys** (kit-defined, legal per OKF §4.1): `consumer` and `kit_commit` on the
+  corpus README; `grade: retrieval | adversarial` on every holdings doc — the
+  machine-legible half of the provenance header.
+- **index.md.** The bundle root carries `index.md` with `okf_version: "0.1"` frontmatter
+  (the only index permitted frontmatter) and a top-level listing for progressive
+  disclosure. Deeper directories rely on their READMEs; OKF consumers may synthesize
+  deeper indexes on the fly.
+- **log.md.** Not emitted: the corpus README's pass narrative and corrections ledger are
+  this method's history-of-record, and the ledger's never-deleted guarantee stays in one
+  place. A corpus MAY additionally maintain a root `log.md` mirroring the pass narrative
+  for OKF consumers; the README stays canonical.
+- **Links.** House style is *relative* links (they render on GitHub and stay valid when a
+  bundle nests inside a larger repo); bundle-absolute links (`/external/...`, OKF §5.1)
+  are accepted and the guard resolves both against the corpus root. The guard *fails* on
+  broken links — deliberately stricter than OKF's tolerate-broken-links consumer minimum,
+  because here a dangling link is a lost evidence chain, not "not-yet-written knowledge."
+- **Citations.** A holdings doc's source list lives under a `# Citations` heading (OKF
+  §8), numbered; entries may point at the primary URL and at the corpus's mirror. The
+  mirror `MANIFEST.md` remains the authority on what was actually captured.
+- **Two tag layers, distinct on purpose.** Frontmatter `tags:` are OKF's cross-cutting
+  *topical* labels (what a doc is about — for filtering and search). The inline evidence
+  tags below grade *individual claims* and never move to frontmatter: a document is not
+  `[measured]`; a claim is.
+
+The guard test enforces the conformance floor mechanically: frontmatter present, `type`
+non-empty, root `okf_version` declared, reserved files clean, every link resolving.
 
 ## Tag vocabulary (inline, on claims)
 
@@ -72,9 +116,10 @@ is load-bearing") — an honest weak contract beats a pretended strong one.
 
 ## Document conventions
 
-- Every holdings document opens with a **provenance header**: pass date, grade
-  (retrieval/adversarial), method (agents, sources), mirror location, and what the grade
-  licenses.
+- Every holdings document opens with a **provenance header**, split across the OKF
+  frontmatter (`grade:` and `timestamp:` — the machine-legible part) and prose immediately
+  below it: method (agents, sources), mirror location, and what the grade licenses. The
+  kit's `templates/corpus/external/_holdings.md.tmpl` is the pass-time skeleton.
 - Self-contained documents: define terms on first use or link `terminology.md`; a reader
   should never need the conversation that produced the doc.
 - **Corrections ledger** (in the corpus README): dated entries for every falsified,

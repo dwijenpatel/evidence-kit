@@ -40,13 +40,20 @@ def main():
                          "is wrong, required to cite Tier-A rows; the curious-reader "
                          "audience is automatic — 'audience-only for now' is honest)")
     ap.add_argument("--min-docs", type=int, default=6,
-                    help="guard: minimum tracked markdown files (default 6; a bare "
-                         "scaffold has 8, so the guard passes before the first pass)")
+                    help="guard: minimum tracked markdown files (default 6, below the "
+                         "bare-scaffold count, so the guard passes before the first pass)")
     args = ap.parse_args()
 
     out = os.path.abspath(os.path.expanduser(args.out))
     if os.path.exists(out) and os.listdir(out):
         sys.exit(f"refusing: {out} exists and is not empty")
+
+    # --topic and --consumer land inside double-quoted YAML frontmatter values;
+    # these characters would make every scaffolded doc unparseable as OKF.
+    for flag, val in (("--topic", args.topic), ("--consumer", args.consumer)):
+        if any(c in val for c in '"\\\n'):
+            sys.exit(f"refusing: {flag} may not contain double quotes, backslashes, "
+                     "or newlines (it is embedded in YAML frontmatter)")
 
     subs = {
         "{{TOPIC}}": args.topic,
@@ -58,6 +65,7 @@ def main():
     }
 
     src_root = os.path.join(KIT, "templates", "corpus")
+    emitted_md = []  # every scaffolded doc is load-bearing: this becomes the guard's list
     for dirpath, _dirnames, filenames in os.walk(src_root):
         rel = os.path.relpath(dirpath, src_root)
         for name in filenames:
@@ -72,6 +80,9 @@ def main():
             os.makedirs(dest_dir, exist_ok=True)
             with open(os.path.join(dest_dir, dest_name), "w", encoding="utf-8") as fh:
                 fh.write(body)
+            if dest_name.endswith(".md"):
+                rel_md = dest_name if rel == "." else f"{rel}/{dest_name}"
+                emitted_md.append(rel_md.replace(os.sep, "/"))
 
     os.makedirs(os.path.join(out, "tests"), exist_ok=True)
     shutil.copy(os.path.join(KIT, "templates", "tests", "test_reference.py"),
@@ -79,9 +90,7 @@ def main():
     with open(os.path.join(out, "tests", "corpus_guard.json"), "w", encoding="utf-8") as fh:
         import json
         json.dump({
-            "required": ["README.md", "index.md", "terminology.md", "distilled/README.md",
-                         "distilled/external.md", "distilled/internal.md",
-                         "external/README.md", "internal/README.md"],
+            "required": sorted(emitted_md),
             "min_markdown_files": args.min_docs,
         }, fh, indent=2)
         fh.write("\n")

@@ -1,3 +1,13 @@
+---
+type: Corpus
+title: "{{TOPIC}} — evidence corpus"
+description: "Primary-sourced, graded evidence corpus on {{TOPIC}}; the Tier-A subset lives in distilled/."
+tags: [evidence-corpus]
+timestamp: {{DATE}}
+consumer: "{{CONSUMER}}"
+kit_commit: {{KIT_COMMIT}}
+---
+
 # {{TOPIC}} — evidence corpus
 
 Primary-sourced, graded research corpus on **{{TOPIC}}**, built with **evidence-kit**
@@ -38,4 +48,5 @@ outside this repo at: `<declare mirror location>`.
 ## Guard
 
 After any doc change: `python3 -m unittest tests.test_reference -q`
-(every relative markdown link must resolve; load-bearing files must exist).
+(every markdown link must resolve; load-bearing files must exist; every document
+meets the OKF conformance floor — frontmatter with a `type`).

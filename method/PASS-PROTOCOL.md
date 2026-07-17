@@ -11,9 +11,12 @@ updates. Passes are how a corpus grows; nothing enters any other way.
 | **retrieval** | Fast map of a target: primary artifacts found, mirrored, read; claims tagged (`author-claimed`, `single-source`, `[reported]`…); reception noted. Single agent per target, no refutation round. | `external/` holdings + READMEs only. **Nothing enters distilled/.** Distillation candidates are flagged for a later adversarial pass. |
 | **adversarial** | Claims a decision can rest on. Fan-out to primaries with **identity checks** (right paper, right version, right authors — confabulated citations are common), claim extraction, then a refutation round: each load-bearing claim through ≥3 independent verification lenses (source-fidelity: does the primary actually say this; methodology/regime-fit: does the method support it, in what regime; independent-replication: who else found it). A claim killed by ≥2/3 lenses dies; corrections are recorded. | May feed Operation 3 (distill). Keep the machine-readable verification record (per-claim verdicts) committed alongside the holdings doc. |
 
-Record the grade in the holdings document's **provenance header**: date, agent
-count/models, what was fanned out, what was mirrored, the grade, and what the grade means
-for the reader ("nothing here entered distilled/" for retrieval).
+Record the grade in the holdings document's **provenance header**: the machine-legible
+part in its OKF frontmatter (start from the kit's
+`templates/corpus/external/_holdings.md.tmpl`; field set per CONVENTIONS.md, "OKF
+alignment"), the rest as prose immediately below — agent count/models, what was fanned
+out, what was mirrored, and what the grade means for the reader ("nothing here entered
+distilled/" for retrieval).
 
 ## Mirror discipline
 
@@ -39,6 +42,8 @@ for the reader ("nothing here entered distilled/" for retrieval).
 - **Quotes**: at most a few per source, each under 15 words, attributed. Summaries in the
   pass author's own words, substantially shorter than the source.
 - **Dates and URLs on everything.** A claim without a date cannot decay gracefully.
+- **Citations section.** The holdings doc's source list goes under a numbered
+  `# Citations` heading (OKF §8; format per CONVENTIONS.md, "OKF alignment").
 - **Regime labels on headline numbers** (see CONVENTIONS.md): source hedging is not
   enough — mark whether the method licenses the number (`{held-out}`,
   `{in-distribution}`, `{unstated-N}`, `{within-noise}`, `{wide-CI}`).
@@ -63,5 +68,7 @@ for the reader ("nothing here entered distilled/" for retrieval).
 3. The **corpus README**: pass narrative (one entry: date, method, what it added), recheck
    schedule additions, corrections if the pass falsified anything already held.
 4. **terminology.md** for new terms of art.
-5. The **guard test** passes: `python3 -m unittest tests.test_reference -q`.
-6. Commit per the host repo's discipline (branch-first where mainline is protected).
+5. **OKF hygiene**: every new doc carries frontmatter with its `type`; every doc the pass
+   meaningfully changed gets its `timestamp` refreshed.
+6. The **guard test** passes: `python3 -m unittest tests.test_reference -q`.
+7. Commit per the host repo's discipline (branch-first where mainline is protected).

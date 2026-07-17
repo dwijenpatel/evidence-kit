@@ -15,7 +15,8 @@ this skill's directory before acting — they are the contract:
 Non-negotiables, in every operation: **mechanisms importable, magnitudes not** ·
 single-source author-run numbers stay labeled until independently confirmed · absence
 findings state their sample and date · corrections are ledgered, never silently fixed ·
-the corpus guard test runs after every doc change.
+every document is an OKF concept (frontmatter with a `type`; see CONVENTIONS.md, "OKF
+alignment") · the corpus guard test runs after every doc change.
 
 ## Operation 1 — scaffold (new corpus)
 
@@ -37,10 +38,11 @@ Follow `method/PASS-PROTOCOL.md`. In brief:
 1. Declare the **grade** up front — `retrieval` (map + mirror + tagged holdings; nothing
    enters distilled/) or `adversarial` (identity-checked primaries, claim extraction,
    multi-lens refutation; survivors may be distilled) — and record it in the holdings doc's
-   provenance header.
+   provenance header (frontmatter `grade:` + prose).
 2. Fan out sub-agents per target/cluster (mirror primary sources to the corpus's declared
    mirror location with a per-topic `MANIFEST.md`; pin repo clones to SHAs).
-3. Write one holdings document per subtopic touched (instantiate
+3. Write one holdings document per subtopic touched (start it from
+   `templates/corpus/external/_holdings.md.tmpl`; instantiate
    `templates/corpus/external/_subtopic-README.md.tmpl` for any new subtopic folder), tag
    every claim, and update: the subtopic README (holdings + open questions), the corpus
    README (pass narrative + recheck schedule), and `terminology.md` for new terms of art.
@@ -66,8 +68,8 @@ what changed. Re-pull any live external ledgers (leaderboards, status files) bef
 
 - If the user wants a one-time answer with no ongoing stake, a deep-research run is the
   better tool — say so instead of scaffolding a corpus they won't maintain. The corpus
-  earns its upkeep only when the answer must stay true (see README, "If you already use
-  deep research").
+  earns its upkeep only when the answer must stay true (see README, "Why this, and not
+  just deep research?").
 - Never let a pass write into `distilled/` directly; distillation is its own operation.
 - Never delete a corrections-ledger entry; it is the corpus's most trustworthy page.
 - If the operator asks for a conclusion the corpus cannot bear ("is X true?" where holdings

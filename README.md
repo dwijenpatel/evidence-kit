@@ -5,9 +5,41 @@ maintaining a *graded evidence corpus* on any topic: primary-sourced holdings or
 subtopic, every claim tagged with how it was established, a distilled Tier-A layer that
 decisions may rest on, a corrections ledger, and a recheck schedule for facts that rot.
 
-The output is a **persistent corpus, not a one-shot research report**. A report is right
-(at best) on the day it's written and rots silently afterward. A corpus knows which of its
-claims can bear weight, watches the ones that decay, and ledgers its own corrections.
+## Why this, and not just deep research?
+
+Deep research answers a question; it does nothing for the answer afterward — and the
+afterward is where decisions live. A report is right (at best) on the day it's written.
+Then a vendor ships, a benchmark is superseded, a policy changes — and nothing tells you
+which of its sentences just expired. This kit uses the same research engine (its passes
+can literally run your deep-research skill) but produces a **persistent corpus instead
+of a terminal report**, addressing six problems a one-shot run structurally cannot:
+
+- **Rot is silent.** No report notices when its claims stop being true. Here, every
+  load-bearing fact carries a *decay class* and a recheck trigger; a recheck operation
+  re-verifies or strikes it — a stale fact is never quietly kept.
+- **Hedges are not load ratings.** "Sources suggest…" cannot tell you whether a sentence
+  can bear a decision. Here every claim carries a *warrant* — replicated,
+  admission-against-interest, directly verified, or official commitment — and only
+  warranted, in-date claims (Tier A) may be built on; the rest is explicitly directional
+  or framing-only.
+- **The retriever grades its own homework.** A report is verified by the same run that
+  gathered it. Here promotion to load-bearing is a *separate, later* operation — a forced
+  second look by construction (the receipt below is what that look catches).
+- **Errors circulate; corrections vanish.** A superseding report never chases down the old
+  one. Here every falsified claim enters a dated, never-deleted *corrections ledger* — an
+  against-interest record, the most trustworthy page in the corpus.
+- **Links die.** Citations rot into 404s and moved pages. Here primaries are *mirrored and
+  pinned* (repo SHAs, PDFs, extracted text), so every claim stays checkable years later.
+- **Nobody has skin in the game.** A report serves a curious reader who never pushes back.
+  A corpus names its *consumer* — the decision surface damaged if a claim is wrong — and
+  that stake is what disciplines which pass runs next and keeps the corpus from rotting
+  into bookmarks.
+
+**Rule of thumb:** if you'll ask the question once and nothing ongoing depends on the
+answer, run deep research — a corpus's upkeep (the recheck schedule and the ledger are
+real work) is overhead you shouldn't pay for a throwaway question. If you'll *return* to
+the topic, or you'll build, decide, or publicly claim something that depends on the answer
+**staying true**, build the corpus.
 
 ## If you already use deep research
 
@@ -31,12 +63,6 @@ is the **persistence, grading, and maintenance layer around it**: everything tha
 **What's the same, deliberately:** primary-sources-first, citation discipline, quote
 limits, the fan-out shape, adversarial verification lenses. If a good deep-research run is
 available to you, the kit assumes you'll use exactly those muscles inside its passes.
-
-**Rule of thumb:** if you'll ask the question once and nothing ongoing depends on the
-answer, run deep research — a corpus's upkeep (the recheck schedule and the ledger are
-real work) is overhead you shouldn't pay for a throwaway question. If you'll *return* to
-the topic, or you'll build, decide, or publicly claim something that depends on the answer
-**staying true**, build the corpus.
 
 A receipt instead of a promise: the first corpus built with this kit seeded itself with
 carefully written, primary-sourced, citation-bearing documents — report-grade text. The
@@ -115,9 +141,26 @@ The four operations — **scaffold / pass / distill / recheck** — are specifie
 | [AGENTS.md](AGENTS.md) | Cross-agent entry point (Codex et al.): how to operate and how to modify this kit. |
 | [method/GRADING.md](method/GRADING.md) | The grading method: warrant × decay, the four Tier-A warrants, fit checks, maintenance rules. |
 | [method/PASS-PROTOCOL.md](method/PASS-PROTOCOL.md) | How a pass runs: retrieval vs adversarial grades, mirror discipline, fan-out, verification lenses. |
-| [method/CONVENTIONS.md](method/CONVENTIONS.md) | Corpus layout, tag vocabulary, audience-vs-consumer contract, document conventions. |
-| [templates/](templates/) | Files `scaffold.py` instantiates into a new corpus (including the link-integrity guard test). |
+| [method/CONVENTIONS.md](method/CONVENTIONS.md) | Corpus layout, tag vocabulary, audience-vs-consumer contract, OKF alignment, document conventions. |
+| [templates/](templates/) | Files `scaffold.py` instantiates into a new corpus (including the link-integrity + OKF-conformance guard test). |
 | [scaffold.py](scaffold.py) | The instantiator. `python3 scaffold.py --help`. |
+
+## The format: every corpus is an OKF bundle
+
+Corpora scaffolded by this kit are conformant **[Open Knowledge Format
+(OKF)](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+v0.1** knowledge bundles: every document is an OKF *concept* (YAML frontmatter with a
+`type`, plus title/description/tags/timestamp), the bundle root declares `okf_version` in
+an `index.md`, source lists use OKF's `# Citations` convention, and the guard test
+enforces the conformance floor mechanically alongside link integrity.
+
+The layering is deliberate: **OKF is the format; evidence-kit is the epistemics on
+top** — any OKF consumer can browse a corpus without knowing the method, while the
+inline evidence tags keep grading *individual claims*, which no document-granularity
+format can do. The kit is deliberately stricter than OKF's permissive consumer rules in
+a few places (broken links fail the guard; history lives in the corpus README, not
+`log.md`); the canonical statement of the mapping, with rationale, is
+[method/CONVENTIONS.md](method/CONVENTIONS.md), "OKF alignment".
 
 ## Provenance and the flow rule
 
@@ -139,8 +182,9 @@ attributed teaching examples, because they are why the rules say what they say.
 
 ## What a skill cannot do
 
-The guard test enforces link integrity mechanically. Everything else — warrants, tiers,
-single-source discipline — is **instructed, not enforced**: the method holds exactly as
+The guard test enforces link integrity and the OKF conformance floor mechanically.
+Everything else — warrants, tiers, single-source discipline — is **instructed, not
+enforced**: the method holds exactly as
 long as the passes follow it. The corrections ledger is where the discipline proves
 itself; read any corpus's ledger before trusting its holdings.
 

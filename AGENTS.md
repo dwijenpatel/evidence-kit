@@ -18,8 +18,10 @@ evidence, distill, or recheck:
 Non-negotiables, in every operation: **mechanisms importable, magnitudes not** ·
 single-source author-run numbers stay labeled until independently confirmed · absence
 findings state their sample and date · corrections are ledgered, never silently fixed ·
-the corpus guard test (`python3 -m unittest tests.test_reference -q`, run from the corpus
-root) passes after every documentation change.
+every corpus document is an OKF concept — YAML frontmatter with a `type` (the corpus is an
+Open Knowledge Format v0.1 bundle; see CONVENTIONS.md, "OKF alignment") · the corpus guard
+test (`python3 -m unittest tests.test_reference -q`, run from the corpus root) passes
+after every documentation change.
 
 Harness notes for non-Claude agents:
 
@@ -35,8 +37,11 @@ Harness notes for non-Claude agents:
 - The three `method/` files and SKILL.md must stay consistent with each other; a change to
   one usually implicates the others — check before committing.
 - `scaffold.py` and `templates/` are coupled: the placeholder set is exactly
-  `{{TOPIC}} {{SLUG}} {{CONSUMER}} {{DATE}} {{KIT_COMMIT}} {{KIT_PATH}}`, and template
-  files named `_*.tmpl` are pass-time templates the scaffolder must skip. If you touch
+  `{{TOPIC}} {{SLUG}} {{CONSUMER}} {{DATE}} {{KIT_COMMIT}} {{KIT_PATH}}`; template
+  files named `_*.tmpl` are pass-time templates the scaffolder must skip; and
+  frontmatter values embedding `{{TOPIC}}` or `{{CONSUMER}}` must stay double-quoted
+  (scaffold.py rejects the characters — `"`, `\`, newline — that would break them,
+  and nothing else guards template YAML validity). If you touch
   either side, run a smoke test: scaffold into a temp directory, run the guard test there
   (it must pass on a bare scaffold, even before `git init`), then delete the temp corpus.
 - Keep the kit **standalone**: no references to any private project, absolute local path,
