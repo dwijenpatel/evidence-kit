@@ -1,6 +1,6 @@
 # Evidence Lake — shared external evidence across project corpora
 
-**Date:** 2026-07-17 · **Status:** approved design, pre-implementation
+**Date:** 2026-07-20 · **Status:** approved design, pre-implementation
 **Scope:** evidence-kit (method + scaffolder + guard), a new `evidence-lake` repo, and
 migration of the two existing corpora (`~/repos/auto-research-corpus`,
 `~/repos/outrigger/docs/research/`).
@@ -137,8 +137,7 @@ Walks all `*.md` frontmatter + MANIFESTs; deterministic output, committed. Three
 `git diff INDEX.md` after a pass is the new-connections report. No database; the
 knowledge-catalog `viz.html` remains an optional pretty view.
 
-## 7. Migration (ordered; **start after the 2026-07-18 summit** — the event briefing
-cites the current corpus layout; churn before the event buys nothing)
+## 7. Migration (ordered)
 
 1. Kit: implement §5; smoke-test all three profiles (scaffold → guard → delete).
 2. Scaffold the lake. Move `auto-research-corpus/{external/,mirrors/}` → `lake/ai/`
@@ -175,6 +174,6 @@ cites the current corpus layout; churn before the event buys nothing)
 
 - `@ <lake-commit>` pin on distilled citations: **adopted**; re-pin is a deliberate
   recheck act (user-approved).
-- Migration timing: **post-summit** (user-approved).
+- Migration timing: no gating — proceed when implementation lands (user-approved).
 - Push vs pull for multi-project relevance: **pull** with the two signals (flow rule 2).
 - Discovery: generated INDEX.md only; no graph database.
