@@ -19,6 +19,16 @@ import sys
 
 KIT = os.path.dirname(os.path.abspath(__file__))
 
+PROFILES = {
+    # skip_top: top-level template dirs not copied · overlay: templates/<name>/ copied
+    # after the main walk (overwrites collisions) · default_min_docs: guard floor that
+    # passes on a bare scaffold of this profile
+    "standalone": {"skip_top": set(), "overlay": None, "default_min_docs": 6},
+    "lake": {"skip_top": {"external", "internal", "distilled"}, "overlay": "lake",
+             "default_min_docs": 3},
+    "project": {"skip_top": {"external"}, "overlay": "project", "default_min_docs": 6},
+}
+
 
 def kit_commit():
     try:
@@ -39,10 +49,17 @@ def main():
                     help="who has skin in the game (a decision surface damaged if a claim "
                          "is wrong, required to cite Tier-A rows; the curious-reader "
                          "audience is automatic — 'audience-only for now' is honest)")
-    ap.add_argument("--min-docs", type=int, default=6,
-                    help="guard: minimum tracked markdown files (default 6, below the "
-                         "bare-scaffold count, so the guard passes before the first pass)")
+    ap.add_argument("--profile", choices=sorted(PROFILES), default="standalone",
+                    help="corpus profile: standalone (default, self-contained), "
+                         "lake (shared external evidence), project (internal+distilled "
+                         "citing a lake)")
+    ap.add_argument("--min-docs", type=int, default=None,
+                    help="guard: minimum tracked markdown files (default: per-profile "
+                         "floor that passes on a bare scaffold)")
     args = ap.parse_args()
+
+    profile = PROFILES[args.profile]
+    min_docs = args.min_docs if args.min_docs is not None else profile["default_min_docs"]
 
     out = os.path.abspath(os.path.expanduser(args.out))
     if os.path.exists(out) and os.listdir(out):
@@ -68,6 +85,9 @@ def main():
     emitted_md = []  # every scaffolded doc is load-bearing: this becomes the guard's list
     for dirpath, _dirnames, filenames in os.walk(src_root):
         rel = os.path.relpath(dirpath, src_root)
+        top = rel.split(os.sep)[0]
+        if top in profile["skip_top"]:
+            continue
         for name in filenames:
             if name.startswith("_"):
                 continue  # pass-time template, not scaffold-time
@@ -90,8 +110,9 @@ def main():
     with open(os.path.join(out, "tests", "corpus_guard.json"), "w", encoding="utf-8") as fh:
         import json
         json.dump({
+            "profile": args.profile,
             "required": sorted(emitted_md),
-            "min_markdown_files": args.min_docs,
+            "min_markdown_files": min_docs,
         }, fh, indent=2)
         fh.write("\n")
 
