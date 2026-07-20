@@ -36,7 +36,8 @@ class ScaffoldMatrix(unittest.TestCase):
         corpus = run_scaffold(self.tmp, "standalone")
         r = run_guard(corpus)
         self.assertEqual(r.returncode, 0, r.stderr)
-        cfg = json.load(open(os.path.join(corpus, "tests", "corpus_guard.json")))
+        with open(os.path.join(corpus, "tests", "corpus_guard.json")) as fh:
+            cfg = json.load(fh)
         self.assertEqual(cfg["profile"], "standalone")
         self.assertIn("external/README.md", cfg["required"])
         self.assertIn("distilled/README.md", cfg["required"])
@@ -46,7 +47,8 @@ class ScaffoldMatrix(unittest.TestCase):
         subprocess.run([sys.executable, os.path.join(KIT, "scaffold.py"),
                         "--topic", "T", "--slug", "t", "--out", out,
                         "--consumer", "c"], check=True, capture_output=True, text=True)
-        cfg = json.load(open(os.path.join(out, "tests", "corpus_guard.json")))
+        with open(os.path.join(out, "tests", "corpus_guard.json")) as fh:
+            cfg = json.load(fh)
         self.assertEqual(cfg["profile"], "standalone")
 
 

@@ -83,10 +83,11 @@ def main():
 
     src_root = os.path.join(KIT, "templates", "corpus")
     emitted_md = []  # every scaffolded doc is load-bearing: this becomes the guard's list
-    for dirpath, _dirnames, filenames in os.walk(src_root):
+    for dirpath, dirnames, filenames in os.walk(src_root):
         rel = os.path.relpath(dirpath, src_root)
         top = rel.split(os.sep)[0]
         if top in profile["skip_top"]:
+            dirnames[:] = []
             continue
         for name in filenames:
             if name.startswith("_"):
