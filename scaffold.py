@@ -40,6 +40,31 @@ def kit_commit():
         return "unversioned"
 
 
+def render_tree(src_root, out, subs, emitted_md, skip_top=frozenset()):
+    for dirpath, dirnames, filenames in os.walk(src_root):
+        rel = os.path.relpath(dirpath, src_root)
+        top = rel.split(os.sep)[0]
+        if top in skip_top:
+            dirnames[:] = []
+            continue
+        for name in filenames:
+            if name.startswith("_"):
+                continue  # pass-time template, not scaffold-time
+            with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
+                body = fh.read()
+            for key, val in subs.items():
+                body = body.replace(key, val)
+            dest_name = name[:-5] if name.endswith(".tmpl") else name
+            dest_dir = os.path.join(out, "" if rel == "." else rel)
+            os.makedirs(dest_dir, exist_ok=True)
+            with open(os.path.join(dest_dir, dest_name), "w", encoding="utf-8") as fh:
+                fh.write(body)
+            if dest_name.endswith(".md"):
+                rel_md = dest_name if rel == "." else f"{rel}/{dest_name}"
+                if rel_md not in emitted_md:
+                    emitted_md.append(rel_md.replace(os.sep, "/"))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--topic", required=True, help="human-readable topic name")
@@ -56,7 +81,13 @@ def main():
     ap.add_argument("--min-docs", type=int, default=None,
                     help="guard: minimum tracked markdown files (default: per-profile "
                          "floor that passes on a bare scaffold)")
+    ap.add_argument("--lake-root", default=None,
+                    help="project profile: absolute path to the evidence lake this "
+                         "corpus cites (written to corpus_guard.json as lake_root)")
     args = ap.parse_args()
+
+    if args.profile == "project" and not args.lake_root:
+        ap.error("--lake-root is required for --profile project")
 
     profile = PROFILES[args.profile]
     min_docs = args.min_docs if args.min_docs is not None else profile["default_min_docs"]
@@ -81,40 +112,28 @@ def main():
         "{{KIT_PATH}}": KIT,
     }
 
-    src_root = os.path.join(KIT, "templates", "corpus")
     emitted_md = []  # every scaffolded doc is load-bearing: this becomes the guard's list
-    for dirpath, dirnames, filenames in os.walk(src_root):
-        rel = os.path.relpath(dirpath, src_root)
-        top = rel.split(os.sep)[0]
-        if top in profile["skip_top"]:
-            dirnames[:] = []
-            continue
-        for name in filenames:
-            if name.startswith("_"):
-                continue  # pass-time template, not scaffold-time
-            with open(os.path.join(dirpath, name), encoding="utf-8") as fh:
-                body = fh.read()
-            for key, val in subs.items():
-                body = body.replace(key, val)
-            dest_name = name[:-5] if name.endswith(".tmpl") else name
-            dest_dir = os.path.join(out, "" if rel == "." else rel)
-            os.makedirs(dest_dir, exist_ok=True)
-            with open(os.path.join(dest_dir, dest_name), "w", encoding="utf-8") as fh:
-                fh.write(body)
-            if dest_name.endswith(".md"):
-                rel_md = dest_name if rel == "." else f"{rel}/{dest_name}"
-                emitted_md.append(rel_md.replace(os.sep, "/"))
+    render_tree(os.path.join(KIT, "templates", "corpus"), out, subs, emitted_md,
+                skip_top=profile["skip_top"])
+    if profile["overlay"]:
+        render_tree(os.path.join(KIT, "templates", profile["overlay"]), out, subs,
+                    emitted_md)
+    if args.profile == "lake":
+        os.makedirs(os.path.join(out, "mirrors"), exist_ok=True)
 
     os.makedirs(os.path.join(out, "tests"), exist_ok=True)
     shutil.copy(os.path.join(KIT, "templates", "tests", "test_reference.py"),
                 os.path.join(out, "tests", "test_reference.py"))
+    guard_cfg = {
+        "profile": args.profile,
+        "required": sorted(emitted_md),
+        "min_markdown_files": min_docs,
+    }
+    if args.profile == "project":
+        guard_cfg["lake_root"] = os.path.abspath(os.path.expanduser(args.lake_root))
     with open(os.path.join(out, "tests", "corpus_guard.json"), "w", encoding="utf-8") as fh:
         import json
-        json.dump({
-            "profile": args.profile,
-            "required": sorted(emitted_md),
-            "min_markdown_files": min_docs,
-        }, fh, indent=2)
+        json.dump(guard_cfg, fh, indent=2)
         fh.write("\n")
 
     print(f"corpus scaffolded at {out} (kit commit {subs['{{KIT_COMMIT}}']})")

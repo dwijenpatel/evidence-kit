@@ -51,6 +51,27 @@ class ScaffoldMatrix(unittest.TestCase):
             cfg = json.load(fh)
         self.assertEqual(cfg["profile"], "standalone")
 
+    def test_lake_profile_layout_and_guard(self):
+        corpus = run_scaffold(self.tmp, "lake")
+        for absent in ("external", "internal", "distilled"):
+            self.assertFalse(os.path.exists(os.path.join(corpus, absent)))
+        body = open(os.path.join(corpus, "terminology.md")).read()
+        self.assertIn("## Tag registry", body)
+        self.assertIn("## Consumers", open(os.path.join(corpus, "README.md")).read())
+        r = run_guard(corpus)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_project_profile_requires_and_records_lake_root(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            run_scaffold(self.tmp, "project")  # no --lake-root
+        lake = run_scaffold(self.tmp, "lake")
+        corpus = run_scaffold(self.tmp, "project", ["--lake-root", lake])
+        self.assertFalse(os.path.exists(os.path.join(corpus, "external")))
+        cfg = json.load(open(os.path.join(corpus, "tests", "corpus_guard.json")))
+        self.assertEqual(cfg["lake_root"], lake)
+        r = run_guard(corpus)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

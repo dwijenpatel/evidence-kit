@@ -1,0 +1,45 @@
+---
+type: Corpus
+title: "{{TOPIC}} — evidence corpus (project profile)"
+description: "Project corpus: internal evidence and the distilled Tier-A subset; external evidence lives in the lake."
+tags: [evidence-corpus]
+timestamp: {{DATE}}
+consumer: "{{CONSUMER}}"
+kit_commit: {{KIT_COMMIT}}
+---
+# {{TOPIC}} — evidence corpus (project profile)
+
+Primary-sourced, graded corpus on **{{TOPIC}}**, **project profile** (kit at
+`{{KIT_PATH}}`, commit `{{KIT_COMMIT}}`, {{DATE}}): this repo holds
+[internal/](internal/README.md) (our own runs — artifacts live with the code that
+produced them) and [distilled/](distilled/README.md) (the Tier-A subset for THIS
+consumer). External evidence lives in the lake (path in `tests/corpus_guard.json`,
+`lake_root`); distilled rows cite it as `lake:<path> §<section> @ <lake-commit>`.
+
+**Consumer:** {{CONSUMER}}
+
+## Pass narrative
+
+<!-- Project-local operations only (internal passes, distillation, rechecks).
+     External passes are recorded in the lake's narrative. Newest last. -->
+
+- {{DATE}} — corpus scaffolded (project profile); no operations yet.
+
+## Corrections ledger
+
+<!-- Corrections to internal/ and distilled/ rows. Corrections to external claims
+     belong in the LAKE's ledger. Never deleted. -->
+
+*(empty)*
+
+## Recheck discipline
+
+Every recheck starts with: diff the lake's pass narrative + corrections ledger since
+this corpus's last pin; re-pin deliberately; any lake correction touching a cited doc
+forces re-verification of the citing distilled row. On kit-pin bumps, diff the kit's
+method files between pins and re-grade affected rows.
+
+## Guard
+
+After any doc change: `python3 -m unittest tests.test_reference -q`
+(links + `lake:` citations resolve · OKF conformance floor · load-bearing files exist).

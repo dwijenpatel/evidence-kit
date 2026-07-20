@@ -1,0 +1,57 @@
+---
+type: Corpus
+title: "{{TOPIC}} — evidence lake"
+description: "Shared external-evidence lake: all primary-sourced holdings and mirrors, across domains; projects distill from here."
+tags: [evidence-lake]
+timestamp: {{DATE}}
+consumer: "{{CONSUMER}}"
+kit_commit: {{KIT_COMMIT}}
+---
+# {{TOPIC}} — evidence lake
+
+Shared **external evidence** for every project corpus on this machine, built with
+evidence-kit conventions, **lake profile** (kit at `{{KIT_PATH}}`, commit
+`{{KIT_COMMIT}}`, {{DATE}}). Holds mirrors + holdings only — no `internal/`, no
+`distilled/`: warrant is consumer-independent, distillation is not. Projects cite
+holdings here as `lake:<path> §<section> @ <commit>` and distill in their own repos.
+
+Layout: `<domain>/<subtopic>/` (two levels, never deeper — a subtopic that wants
+children is two subtopics). A document lives in exactly **one** folder — canonical home
+= the domain whose decay context governs it; membership elsewhere via frontmatter
+`tags`, "Related material elsewhere" lines, and inline links. Domains arrive by
+`mkdir`. Discovery: [INDEX.md](INDEX.md) (generated — run `python3 index.py` after
+every pass).
+
+## Consumers
+
+<!-- One line per project consumer: name · what rests on this lake · corpus path.
+     Every pass provenance names which of these motivated it. -->
+
+- {{CONSUMER}}
+
+*Human learners are the automatic audience (nothing at stake). For a one-off learning
+goal, generate a briefing-style artifact from holdings; if a goal becomes load-bearing,
+it is a consumer — give it a project corpus.*
+
+## Pass narrative
+
+<!-- One entry per pass: date, grade, motivating consumer, what it added, and an
+     "implications" line naming other consumers plausibly implicated. Newest last. -->
+
+- {{DATE}} — lake scaffolded; no passes yet.
+
+## Corrections ledger
+
+<!-- Dated entries for every falsified, narrowed, or struck external claim, lake-wide.
+     Never deleted. Projects diff this ledger since their last pin at every recheck. -->
+
+*(empty — nothing falsified yet)*
+
+## Recheck schedule (these facts rot)
+
+*(none registered yet)*
+
+## Guard
+
+After any doc change: `python3 index.py && python3 -m unittest tests.test_reference -q`
+(links resolve · OKF conformance floor · every frontmatter tag registered · INDEX fresh).
