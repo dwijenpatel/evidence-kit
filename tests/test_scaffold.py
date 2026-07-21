@@ -107,6 +107,14 @@ class ScaffoldMatrix(unittest.TestCase):
             fh.write("- `unregistered-tag` — test tag.\n")
         r = run_guard(lake)
         self.assertEqual(r.returncode, 0, r.stderr)
+        # Prose backticks in the registry section must not silently register a tag.
+        with open(os.path.join(lake, "terminology.md"), "a") as fh:
+            fh.write("\nNote: never use `prose-only-tag` casually.\n")
+        with open(os.path.join(lake, "ai", "topic", "doc2.md"), "w") as fh:
+            fh.write("---\ntype: Holdings\ntags: [prose-only-tag]\n---\n# d2\n")
+        r = run_guard(lake)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("prose-only-tag", r.stderr + r.stdout)
 
 
 if __name__ == "__main__":

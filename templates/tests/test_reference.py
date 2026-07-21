@@ -159,7 +159,11 @@ class CorpusLinkTests(unittest.TestCase):
         with open(os.path.join(ROOT, "terminology.md"), encoding="utf-8") as fh:
             term = fh.read()
         section = term.split("## Tag registry", 1)
-        registry = set(REGISTERED.findall(section[1])) if len(section) == 2 else set()
+        registry = set()
+        if len(section) == 2:
+            for line in section[1].splitlines():
+                if line.lstrip().startswith("-"):
+                    registry.update(REGISTERED.findall(line))
         bad = []
         for f in tracked_markdown():
             with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
