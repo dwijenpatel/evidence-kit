@@ -152,6 +152,44 @@ class ScaffoldMatrix(unittest.TestCase):
         r = run_guard(lake)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_lake_xref_shared_source_normalizes_arxiv_and_collapses_mirrors(self):
+        """Same primary cited as abs URL / pdf URL / prose 'arXiv <id>' collapses to one
+        shared-source key; a MANIFEST mirror of that key sets a [mirrored] flag instead of
+        counting as its own subtopic (mirrors/<domain> must not satisfy the >=2 threshold
+        on its own)."""
+        lake = run_scaffold(self.tmp, "lake")
+        os.makedirs(os.path.join(lake, "ai", "rsi-lab"), exist_ok=True)
+        os.makedirs(os.path.join(lake, "ai", "self-improvement"), exist_ok=True)
+        os.makedirs(os.path.join(lake, "mirrors", "ai", "x"), exist_ok=True)
+        with open(os.path.join(lake, "ai", "rsi-lab", "doc.md"), "w") as fh:
+            fh.write("---\ntype: Holdings\ntitle: \"D1\"\ntags: [shared-tag]\n---\n"
+                     "# D1\nSee https://arxiv.org/abs/1234.56789 for the source.\n")
+        with open(os.path.join(lake, "ai", "self-improvement", "doc.md"), "w") as fh:
+            fh.write("---\ntype: Holdings\ntitle: \"D2\"\ntags: [shared-tag]\n---\n"
+                     "# D2\nPer arXiv 1234.56789, also mirrored at "
+                     "https://www.arxiv.org/pdf/1234.56789v2 for the PDF.\n")
+        with open(os.path.join(lake, "mirrors", "ai", "x", "MANIFEST.md"), "w") as fh:
+            fh.write("---\ntype: Mirror Manifest\ntitle: \"Mirror manifest — ai/x\"\n"
+                     "description: Local mirrors captured for ai/x.\n---\n"
+                     "# Mirror manifest — ai/x\n\n"
+                     "| local | url | retrieved | type |\n|---|---|---|---|\n"
+                     "| paper.pdf | https://arxiv.org/abs/1234.56789 | 2026-07-20 | pdf |\n")
+        with open(os.path.join(lake, "terminology.md"), "a") as fh:
+            fh.write("- `shared-tag` — test.\n")
+        subprocess.run([sys.executable, os.path.join(lake, "index.py")], check=True,
+                       cwd=lake, capture_output=True)
+        with open(os.path.join(lake, "XREF.md")) as fh:
+            body = fh.read()
+        rows = [ln for ln in body.splitlines() if ln.startswith("- arxiv:1234.56789")]
+        self.assertEqual(len(rows), 1, body)                    # exactly one collapsed row
+        row = rows[0]
+        self.assertIn("ai/rsi-lab", row)
+        self.assertIn("ai/self-improvement", row)
+        self.assertIn("[mirrored]", row)
+        self.assertNotIn("mirrors/ai", row)                     # mirror namespace not a subtopic
+        r = run_guard(lake)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
