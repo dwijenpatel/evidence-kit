@@ -4,7 +4,7 @@
 
 **Goal:** Add lake/project corpus profiles to evidence-kit, then migrate the two existing corpora so all external evidence lives in one private `~/repos/evidence-lake` repo with a generated cross-domain INDEX.
 
-**Architecture:** Three scaffold profiles (`standalone` = today's layout, `lake` = external-only + INDEX machinery, `project` = internal+distilled only with `lake:` citations resolved against a configured lake root). The guard test grows three profile-aware checks; a stdlib `index.py` generates INDEX.md (tags / backlinks / shared sources). Migration is scripted copies with provenance stamps, then citation rewrites, then guards green in all three repos.
+**Architecture:** Three scaffold profiles (`standalone` = today's layout, `lake` = external-only + INDEX machinery, `project` = internal+distilled only with `lake:` citations resolved against a configured lake root). The guard test grows three profile-aware checks; a stdlib `index.py` generates XREF.md (tags / backlinks / shared sources). Migration is scripted copies with provenance stamps, then citation rewrites, then guards green in all three repos.
 
 **Tech Stack:** Python 3 stdlib only (no pip installs, ever), git, Markdown + OKF v0.1 frontmatter.
 
@@ -234,7 +234,7 @@ Layout: `<domain>/<subtopic>/` (two levels, never deeper — a subtopic that wan
 children is two subtopics). A document lives in exactly **one** folder — canonical home
 = the domain whose decay context governs it; membership elsewhere via frontmatter
 `tags`, "Related material elsewhere" lines, and inline links. Domains arrive by
-`mkdir`. Discovery: [INDEX.md](INDEX.md) (generated — run `python3 index.py` after
+`mkdir`. Discovery: [XREF.md](XREF.md) (generated — run `python3 index.py` after
 every pass).
 
 ## Consumers
@@ -283,7 +283,7 @@ okf_version: "0.1"
 
 * [README](README.md) - consumers, pass narrative, corrections ledger, recheck schedule
 * [Terminology](terminology.md) - every acronym, coined term, evidence tag, and the tag registry
-* [INDEX](INDEX.md) - generated: tag index, backlinks, shared sources
+* [INDEX](XREF.md) - generated: tag index, backlinks, shared sources
 
 # Evidence
 
@@ -625,7 +625,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: OKF frontmatter (`title`, `tags`), MANIFEST tables (`| local | url | …` rows), markdown links.
-- Produces: `python3 index.py` (regenerates `INDEX.md` in place) and `python3 index.py --check` (exit 0 fresh / 1 stale — consumed by the guard). INDEX.md carries `type: Generated Index` frontmatter. Scaffold (lake profile) runs index.py once so a bare lake has a fresh INDEX.md.
+- Produces: `python3 index.py` (regenerates `XREF.md` in place) and `python3 index.py --check` (exit 0 fresh / 1 stale — consumed by the guard). XREF.md carries `type: Generated Index` frontmatter. Scaffold (lake profile) runs index.py once so a bare lake has a fresh XREF.md.
 
 - [ ] **Step 1: Write the failing kit-side tests**
 
@@ -634,7 +634,7 @@ Append to `tests/test_scaffold.py`:
 ```python
     def test_lake_index_generated_deterministic_and_guarded(self):
         lake = run_scaffold(self.tmp, "lake")
-        idx = os.path.join(lake, "INDEX.md")
+        idx = os.path.join(lake, "XREF.md")
         self.assertTrue(os.path.exists(idx))            # scaffold ran index.py
         first = open(idx).read()
         subprocess.run([sys.executable, os.path.join(lake, "index.py")], check=True,
@@ -662,17 +662,17 @@ Append to `tests/test_scaffold.py`:
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `python3 -m unittest tests.test_scaffold.ScaffoldMatrix.test_lake_index_generated_deterministic_and_guarded -v`
-Expected: FAIL at the first assert (no INDEX.md; index.py doesn't exist).
+Expected: FAIL at the first assert (no XREF.md; index.py doesn't exist).
 
 - [ ] **Step 3: Write `templates/lake/index.py`**
 
 ```python
 #!/usr/bin/env python3
-"""Regenerate INDEX.md — tag index, backlinks, shared sources — for a lake corpus.
+"""Regenerate XREF.md — tag index, backlinks, shared sources — for a lake corpus.
 
 Deterministic, stdlib-only. Part of the evidence-kit lake profile; run after every
-pass:  python3 index.py        (rewrite INDEX.md)
-       python3 index.py --check  (exit 1 if INDEX.md is stale; used by the guard)
+pass:  python3 index.py        (rewrite XREF.md)
+       python3 index.py --check  (exit 1 if XREF.md is stale; used by the guard)
 """
 import os
 import re
@@ -685,7 +685,7 @@ FM_TAGS = re.compile(r"^tags:\s*\[([^\]]*)\]", re.MULTILINE)
 FM_TITLE = re.compile(r"^title:\s*\"?([^\"\n]+?)\"?\s*$", re.MULTILINE)
 LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)")
 URL = re.compile(r"https?://[^\s)\]>|\"']+")
-SKIP_FILES = {"INDEX.md"}
+SKIP_FILES = {"XREF.md"}
 SKIP_DIRS = {"tests", "mirrors"}          # mirrors enter via MANIFEST parsing only
 
 
@@ -789,13 +789,13 @@ def render():
 
 def main():
     fresh = render()
-    idx = os.path.join(ROOT, "INDEX.md")
+    idx = os.path.join(ROOT, "XREF.md")
     current = open(idx, encoding="utf-8").read() if os.path.exists(idx) else None
     if "--check" in sys.argv:
         sys.exit(0 if current == fresh else 1)
     with open(idx, "w", encoding="utf-8") as fh:
         fh.write(fresh)
-    print("INDEX.md regenerated")
+    print("XREF.md regenerated")
 
 
 if __name__ == "__main__":
@@ -808,13 +808,13 @@ Guard (`templates/tests/test_reference.py`) — add:
 
 ```python
     def test_index_is_fresh(self):
-        """Lake profile: INDEX.md matches what index.py would generate right now."""
+        """Lake profile: XREF.md matches what index.py would generate right now."""
         if CONFIG.get("profile") != "lake":
             self.skipTest("INDEX freshness is a lake-profile rule")
         import subprocess, sys as _sys
         r = subprocess.run([_sys.executable, os.path.join(ROOT, "index.py"), "--check"])
         self.assertEqual(r.returncode, 0,
-                         "INDEX.md is stale — run: python3 index.py")
+                         "XREF.md is stale — run: python3 index.py")
 ```
 
 Scaffold (`scaffold.py`) — after the lake `mirrors/` mkdir, generate the initial INDEX:
@@ -824,7 +824,7 @@ Scaffold (`scaffold.py`) — after the lake `mirrors/` mkdir, generate the initi
         subprocess.run([sys.executable, os.path.join(out, "index.py")], check=True)
 ```
 
-(`sys` is already imported; `subprocess` is already imported for `kit_commit()`. Also append `"INDEX.md"` to `emitted_md` before the corpus_guard.json dump so the guard's required list includes it.)
+(`sys` is already imported; `subprocess` is already imported for `kit_commit()`. Also append `"XREF.md"` to `emitted_md` before the corpus_guard.json dump so the guard's required list includes it.)
 
 - [ ] **Step 5: Run the full kit matrix**
 
@@ -864,7 +864,7 @@ consumer-independent, distillation is not.** Three profiles (scaffold `--profile
 | Profile | Has | Lacks |
 |---|---|---|
 | `standalone` (default) | everything above | — |
-| `lake` | `<domain>/<subtopic>/` holdings · `mirrors/` · generated `INDEX.md` · one README (consumers **plural**, pass narrative, corrections ledger, recheck schedule) · terminology + **tag registry** | `internal/`, `distilled/` |
+| `lake` | `<domain>/<subtopic>/` holdings · `mirrors/` · generated `XREF.md` · one README (consumers **plural**, pass narrative, corrections ledger, recheck schedule) · terminology + **tag registry** | `internal/`, `distilled/` |
 | `project` | `internal/` · `distilled/` · README (consumer, project narrative, project ledger) | `external/`, `mirrors/` |
 
 - **Lake tree is storage, not meaning**: two levels (`<domain>/<subtopic>/`), never
@@ -884,9 +884,9 @@ consumer-independent, distillation is not.** Three profiles (scaffold `--profile
 - **Tag registry**: every frontmatter tag used anywhere in the lake is defined in
   terminology.md's "## Tag registry" (guard-enforced) — one vocabulary keeps the INDEX
   from splitting.
-- **Discovery**: `INDEX.md` is generated (`python3 index.py`) — tag index with
+- **Discovery**: `XREF.md` is generated (`python3 index.py`) — tag index with
   cross-domain flags, backlink table with cross-domain edges first, shared-source
-  report (URL in ≥2 subtopics). `git diff INDEX.md` after a pass is the
+  report (URL in ≥2 subtopics). `git diff XREF.md` after a pass is the
   new-connections report; the guard asserts freshness.
 ```
 
@@ -895,7 +895,7 @@ consumer-independent, distillation is not.** Three profiles (scaffold `--profile
 Append to the "What a pass updates (checklist)" section's list (renumber as needed):
 
 ```markdown
-8. **Lake corpora only**: regenerate `INDEX.md` (`python3 index.py`) — its diff is the
+8. **Lake corpora only**: regenerate `XREF.md` (`python3 index.py`) — its diff is the
    pass's new-connections report; register any new tags in the terminology tag
    registry.
 ```
@@ -910,7 +910,7 @@ evidence from any pass lands **in the lake** — one edition of every holding, w
 project motivated the work. The provenance header names the **motivating consumer**
 (one of the lake README's named consumers), and the pass-narrative entry ends with an
 **implications line** naming any other consumers the findings plausibly implicate.
-Before mirroring anything, grep `INDEX.md`'s shared-source report — if the URL is
+Before mirroring anything, grep `XREF.md`'s shared-source report — if the URL is
 already held, extend the existing mirror instead of re-fetching.
 ```
 
@@ -921,7 +921,7 @@ In Operation 2 step 2, after "(mirror primary sources to the corpus's declared m
 ```markdown
    Where a lake corpus exists, external holdings and mirrors land in the lake (see
    PASS-PROTOCOL.md, "Where a pass writes"): name the motivating consumer, add the
-   implications line, check INDEX.md before mirroring, regenerate it after.
+   implications line, check XREF.md before mirroring, regenerate it after.
 ```
 
 In Operation 4, append to the paragraph:
@@ -1234,7 +1234,7 @@ cd ~/repos/auto-research-corpus && python3 -m unittest tests.test_reference -q  
 cd ~/repos/outrigger/docs/research && python3 -m unittest tests.test_reference -q  # OK
 ```
 
-Hand-walk three sampled distilled rows (one per repo tier): distilled row → `lake:` path opens → holdings §section exists → cited primary/mirror reachable. Open `~/repos/evidence-lake/INDEX.md` and confirm: the shared-source report lists at least one URL held by both an ex-outrigger and an ex-auto-research subtopic, and cross-domain flags render. Record the INDEX highlights in the lake README pass narrative as the migration's closing entry.
+Hand-walk three sampled distilled rows (one per repo tier): distilled row → `lake:` path opens → holdings §section exists → cited primary/mirror reachable. Open `~/repos/evidence-lake/XREF.md` and confirm: the shared-source report lists at least one URL held by both an ex-outrigger and an ex-auto-research subtopic, and cross-domain flags render. Record the INDEX highlights in the lake README pass narrative as the migration's closing entry.
 
 - [ ] **Step 4: Final commits + report**
 

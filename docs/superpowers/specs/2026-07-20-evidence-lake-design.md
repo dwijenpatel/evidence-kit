@@ -37,7 +37,7 @@ Three corpus **profiles** (a new kit concept):
 | Profile | Has | Lacks | Instances |
 |---|---|---|---|
 | `standalone` | everything (today's layout) | — | outside users; default |
-| `lake` | external/ (as domain shards), mirrors/, INDEX.md, single README (consumers, pass narrative, corrections ledger, recheck schedule), terminology + tag registry | internal/, distilled/ | `~/repos/evidence-lake` |
+| `lake` | external/ (as domain shards), mirrors/, XREF.md, single README (consumers, pass narrative, corrections ledger, recheck schedule), terminology + tag registry | internal/, distilled/ | `~/repos/evidence-lake` |
 | `project` | internal/, distilled/, README (consumer, project pass narrative, project ledger), guard w/ `lake_root` | external/, mirrors/ | auto-research-corpus; outrigger/docs/research |
 
 ### 3.1 The lake repo (`~/repos/evidence-lake`, private, one OKF v0.1 bundle)
@@ -48,7 +48,7 @@ evidence-lake/
   README.md             # consumers (plural, named) · pass narrative · corrections
                         # ledger · recheck schedule — one of each, lake-wide
   terminology.md        # shared vocabulary + tag registry (§6)
-  INDEX.md              # generated (§6): tag index · backlinks · shared-source report
+  XREF.md              # generated (§6): tag index · backlinks · shared-source report
   <domain>/<subtopic>/  # holdings + scoped READMEs — two levels, never deeper
   mirrors/<domain>/<target>/   # mirrors + URL-keyed MANIFESTs
   tests/                # guard + INDEX-freshness check
@@ -118,13 +118,18 @@ Re-pinning is a deliberate recheck-time act, never automatic.
   cross-membership mechanics.
 - **PASS-PROTOCOL.md**: external passes write into the lake (when one exists);
   provenance names motivating project/consumer; checklist adds the implications line,
-  "regenerate INDEX.md", and a pre-pass dedup check ("grep INDEX.md's shared-source
+  "regenerate XREF.md", and a pre-pass dedup check ("grep XREF.md's shared-source
   table before mirroring").
 - **SKILL.md**: operation 4 (recheck) gains the lake-diff and pin-bump/method-diff
   steps; operation 2 notes the lake as the write target for external evidence.
 - **README.md (kit)**: content flow rule added to the flow rules.
 
-## 6. INDEX.md generator (`index.py`, stdlib, ~150 lines, lake-only)
+## 6. XREF.md generator (`index.py`, stdlib, ~150 lines, lake-only)
+
+*(Renamed from INDEX.md, 2026-07-20, during implementation: the generated file
+collided with OKF's reserved bundle-root `index.md` on case-insensitive
+filesystems — macOS/Windows defaults — silently clobbering the bundle root.
+`XREF.md` follows the `MANIFEST.md` uppercase generated-artifact convention.)
 
 Walks all `*.md` frontmatter + MANIFESTs; deterministic output, committed. Three views:
 
@@ -134,7 +139,7 @@ Walks all `*.md` frontmatter + MANIFESTs; deterministic output, committed. Three
 3. **Shared-source report** — any URL in ≥2 MANIFESTs or cited in ≥2 subtopics; doubles
    as the pre-pass dedup surface.
 
-`git diff INDEX.md` after a pass is the new-connections report. No database; the
+`git diff XREF.md` after a pass is the new-connections report. No database; the
 knowledge-catalog `viz.html` remains an optional pretty view.
 
 ## 7. Migration (ordered)
@@ -149,7 +154,7 @@ knowledge-catalog `viz.html` remains an optional pretty view.
 4. Convert both projects to `project` profile; rewrite distilled citations to `lake:`
    form (auto-research: 16 rows; outrigger: counted at execution). All three guards
    green.
-5. First `index.py` run — the initial INDEX.md is deliverable #1: the overlap map.
+5. First `index.py` run — the initial XREF.md is deliverable #1: the overlap map.
 
 ## 8. Edge cases
 
@@ -176,4 +181,4 @@ knowledge-catalog `viz.html` remains an optional pretty view.
   recheck act (user-approved).
 - Migration timing: no gating — proceed when implementation lands (user-approved).
 - Push vs pull for multi-project relevance: **pull** with the two signals (flow rule 2).
-- Discovery: generated INDEX.md only; no graph database.
+- Discovery: generated XREF.md only; no graph database.
