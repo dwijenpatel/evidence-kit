@@ -178,6 +178,16 @@ class CorpusLinkTests(unittest.TestCase):
                     bad.append(f"{f}: tag `{tag}` not in terminology.md tag registry")
         self.assertEqual(bad, [], "unregistered tags:\n" + "\n".join(bad))
 
+    def test_index_is_fresh(self):
+        """Lake profile: XREF.md matches what index.py would generate right now."""
+        config = load_config(self)
+        if config.get("profile") != "lake":
+            self.skipTest("INDEX freshness is a lake-profile rule")
+        import sys as _sys
+        r = subprocess.run([_sys.executable, os.path.join(ROOT, "index.py"), "--check"])
+        self.assertEqual(r.returncode, 0,
+                         "XREF.md is stale — run: python3 index.py")
+
 
 if __name__ == "__main__":
     unittest.main()

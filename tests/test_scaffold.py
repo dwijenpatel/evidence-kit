@@ -25,6 +25,11 @@ def run_guard(corpus):
                           cwd=corpus, capture_output=True, text=True)
 
 
+def regen_index(lake):
+    subprocess.run([sys.executable, os.path.join(lake, "index.py")], check=True,
+                   cwd=lake, capture_output=True)
+
+
 class ScaffoldMatrix(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ek-smoke-")
@@ -105,6 +110,7 @@ class ScaffoldMatrix(unittest.TestCase):
         self.assertIn("unregistered-tag", r.stderr + r.stdout)
         with open(os.path.join(lake, "terminology.md"), "a") as fh:
             fh.write("- `unregistered-tag` — test tag.\n")
+        regen_index(lake)  # doc change -> XREF.md regenerated, per lake workflow
         r = run_guard(lake)
         self.assertEqual(r.returncode, 0, r.stderr)
         # Prose backticks in the registry section must not silently register a tag.
@@ -112,9 +118,39 @@ class ScaffoldMatrix(unittest.TestCase):
             fh.write("\nNote: never use `prose-only-tag` casually.\n")
         with open(os.path.join(lake, "ai", "topic", "doc2.md"), "w") as fh:
             fh.write("---\ntype: Holdings\ntags: [prose-only-tag]\n---\n# d2\n")
+        regen_index(lake)  # fresh index isolates the failure to the tag check
         r = run_guard(lake)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("prose-only-tag", r.stderr + r.stdout)
+
+    def test_lake_index_generated_deterministic_and_guarded(self):
+        lake = run_scaffold(self.tmp, "lake")
+        idx = os.path.join(lake, "XREF.md")
+        self.assertTrue(os.path.exists(idx))            # scaffold ran index.py
+        with open(idx) as fh:
+            first = fh.read()
+        subprocess.run([sys.executable, os.path.join(lake, "index.py")], check=True,
+                       cwd=lake, capture_output=True)
+        with open(idx) as fh:
+            self.assertEqual(first, fh.read())            # deterministic
+        # cross-domain machinery: two docs sharing a tag + a URL, in two domains
+        for dom in ("ai", "etl"):
+            os.makedirs(os.path.join(lake, dom, "sub"), exist_ok=True)
+            with open(os.path.join(lake, dom, "sub", "doc.md"), "w") as fh:
+                fh.write("---\ntype: Holdings\ntitle: \"D\"\ntags: [shared-tag]\n---\n"
+                         "# D\nSee https://example.com/paper for the claim.\n")
+        with open(os.path.join(lake, "terminology.md"), "a") as fh:
+            fh.write("- `shared-tag` — test.\n")
+        r = run_guard(lake)
+        self.assertNotEqual(r.returncode, 0)             # INDEX now stale -> guard fails
+        subprocess.run([sys.executable, os.path.join(lake, "index.py")], check=True,
+                       cwd=lake, capture_output=True)
+        with open(idx) as fh:
+            body = fh.read()
+        self.assertIn("shared-tag", body)
+        self.assertIn("example.com/paper", body)         # shared-source across domains
+        r = run_guard(lake)
+        self.assertEqual(r.returncode, 0, r.stderr)
 
 
 if __name__ == "__main__":

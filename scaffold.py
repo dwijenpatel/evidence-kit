@@ -120,6 +120,9 @@ def main():
                     emitted_md)
     if args.profile == "lake":
         os.makedirs(os.path.join(out, "mirrors"), exist_ok=True)
+        subprocess.run([sys.executable, os.path.join(out, "index.py")], check=True)
+        if "XREF.md" not in emitted_md:
+            emitted_md.append("XREF.md")
 
     os.makedirs(os.path.join(out, "tests"), exist_ok=True)
     shutil.copy(os.path.join(KIT, "templates", "tests", "test_reference.py"),
