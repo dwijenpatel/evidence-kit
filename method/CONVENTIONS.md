@@ -72,6 +72,39 @@ method rides on top; the format underneath is plain OKF.
 The guard test enforces the conformance floor mechanically: frontmatter present, `type`
 non-empty, root `okf_version` declared, reserved files clean, every link resolving.
 
+## Lake and project profiles
+
+A machine that runs several corpora splits them by the method's own seam: **warrant is
+consumer-independent, distillation is not.** Three profiles (scaffold `--profile`):
+
+| Profile | Has | Lacks |
+|---|---|---|
+| `standalone` (default) | everything above | — |
+| `lake` | `<domain>/<subtopic>/` holdings · `mirrors/` · generated `XREF.md` · one README (consumers **plural**, pass narrative, corrections ledger, recheck schedule) · terminology + **tag registry** | `internal/`, `distilled/` |
+| `project` | `internal/` · `distilled/` · README (consumer, project narrative, project ledger) | `external/`, `mirrors/` |
+
+- **Lake tree is storage, not meaning**: two levels (`<domain>/<subtopic>/`), never
+  deeper; a doc lives in exactly one folder — canonical home is the domain whose decay
+  context governs it; membership elsewhere via `tags`, "Related material elsewhere"
+  lines, and links. Never duplicate a doc. A subtopic that wants children is two
+  subtopics.
+- **Citations across the seam**: a project's distilled rows cite lake holdings as
+  `lake:<path> §<section> @ <lake-commit>`. The pin answers "which edition graded
+  this"; re-pinning is a deliberate recheck-time act. The project guard resolves
+  `lake:` paths against `lake_root` in `tests/corpus_guard.json` and fails loudly when
+  they don't resolve.
+- **Corrections routing**: external claims → the lake's ledger; internal/distilled
+  rows → the project's ledger. Projects diff the lake ledger since their last pin at
+  every recheck; a lake correction touching a cited doc forces re-verification of the
+  citing row.
+- **Tag registry**: every frontmatter tag used anywhere in the lake is defined in
+  terminology.md's "## Tag registry" (guard-enforced) — one vocabulary keeps the INDEX
+  from splitting.
+- **Discovery**: `XREF.md` is generated (`python3 index.py`) — tag index with
+  cross-domain flags, backlink table with cross-domain edges first, shared-source
+  report (URL in ≥2 subtopics). `git diff XREF.md` after a pass is the
+  new-connections report; the guard asserts freshness.
+
 ## Tag vocabulary (inline, on claims)
 
 `[official]` authoritative/vendor statement (split commitment vs mechanism per GRADING.md) ·

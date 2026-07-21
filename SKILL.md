@@ -41,6 +41,9 @@ Follow `method/PASS-PROTOCOL.md`. In brief:
    provenance header (frontmatter `grade:` + prose).
 2. Fan out sub-agents per target/cluster (mirror primary sources to the corpus's declared
    mirror location with a per-topic `MANIFEST.md`; pin repo clones to SHAs).
+   Where a lake corpus exists, external holdings and mirrors land in the lake (see
+   PASS-PROTOCOL.md, "Where a pass writes"): name the motivating consumer, add the
+   implications line, check XREF.md before mirroring, regenerate it after.
 3. Write one holdings document per subtopic touched (start it from
    `templates/corpus/external/_holdings.md.tmpl`; instantiate
    `templates/corpus/external/_subtopic-README.md.tmpl` for any new subtopic folder), tag
@@ -63,6 +66,9 @@ Walk the corpus README's recheck schedule and every distilled row whose decay cl
 trigger that fired. Re-verify or **strike** — a stale Tier-A fact is worse than a Tier-B one.
 Every strike or correction goes to the corpus README's corrections ledger with a date and
 what changed. Re-pull any live external ledgers (leaderboards, status files) before citing.
+Project-profile corpora start every recheck by diffing the lake's pass narrative and
+corrections ledger since their last pin, then re-pin deliberately; on a kit-pin bump,
+diff the kit's method files between pins and re-grade affected rows.
 
 ## Guardrails
 

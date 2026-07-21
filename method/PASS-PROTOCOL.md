@@ -18,6 +18,16 @@ alignment"), the rest as prose immediately below — agent count/models, what wa
 out, what was mirrored, and what the grade means for the reader ("nothing here entered
 distilled/" for retrieval).
 
+## Where a pass writes
+
+Where a lake corpus exists (see CONVENTIONS.md, "Lake and project profiles"), external
+evidence from any pass lands **in the lake** — one edition of every holding, whichever
+project motivated the work. The provenance header names the **motivating consumer**
+(one of the lake README's named consumers), and the pass-narrative entry ends with an
+**implications line** naming any other consumers the findings plausibly implicate.
+Before mirroring anything, grep `XREF.md`'s shared-source report — if the URL is
+already held, extend the existing mirror instead of re-fetching.
+
 ## Mirror discipline
 
 - Every primary artifact gets a local mirror at the corpus's declared mirror location
@@ -72,3 +82,6 @@ distilled/" for retrieval).
    meaningfully changed gets its `timestamp` refreshed.
 6. The **guard test** passes: `python3 -m unittest tests.test_reference -q`.
 7. Commit per the host repo's discipline (branch-first where mainline is protected).
+8. **Lake corpora only**: regenerate `XREF.md` (`python3 index.py`) — its diff is the
+   pass's new-connections report; register any new tags in the terminology tag
+   registry.

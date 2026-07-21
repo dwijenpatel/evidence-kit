@@ -43,7 +43,9 @@ Harness notes for non-Claude agents:
   (scaffold.py rejects the characters — `"`, `\`, newline — that would break them,
   and nothing else guards template YAML validity). If you touch
   either side, run a smoke test: scaffold into a temp directory, run the guard test there
-  (it must pass on a bare scaffold, even before `git init`), then delete the temp corpus.
+  (it must pass on a bare scaffold, even before `git init`), then delete the temp corpus —
+  run the smoke test via the kit's own matrix: `python3 -m unittest tests.test_scaffold
+  -q` (scaffolds every profile into a temp dir, runs each corpus guard, deletes).
 - Keep the kit **standalone**: no references to any private project, absolute local path,
   or machine-specific location may enter the method files or templates (the scaffolder
   substitutes `{{KIT_PATH}}` at instantiation time for the one place a local path is

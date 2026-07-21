@@ -179,6 +179,10 @@ attributed teaching examples, because they are why the rules say what they say.
 3. **Instances pin their edition**: a scaffolded corpus records the kit commit it was
    instantiated from, so "which method graded this?" stays answerable even as the kit
    moves.
+4. **Content flows with provenance**: a document seeded or imported from another corpus
+   records its origin corpus + commit in its provenance, and corrections to either
+   edition are ledgered in **both**. (With a lake this mostly disappears — one edition —
+   but it governs migrations and any standalone-corpus seeding.)
 
 ## What a skill cannot do
 
