@@ -76,6 +76,25 @@ class ScaffoldMatrix(unittest.TestCase):
         r = run_guard(corpus)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_project_guard_checks_lake_citations(self):
+        lake = run_scaffold(self.tmp, "lake")
+        corpus = run_scaffold(self.tmp, "project", ["--lake-root", lake])
+        os.makedirs(os.path.join(lake, "ai", "topic"), exist_ok=True)
+        with open(os.path.join(lake, "ai", "topic", "doc.md"), "w") as fh:
+            fh.write("---\ntype: Holdings\n---\n# d\n")
+        row = ("1. **Fact.** · `A3` · cited lake:ai/topic/doc.md §2 @ abc1234 "
+               "and record lake:ai/topic/rec.jsonl\n")
+        ext = os.path.join(corpus, "distilled", "external.md")
+        with open(ext, "a") as fh:
+            fh.write(row)
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)          # rec.jsonl missing -> fail
+        self.assertIn("lake:ai/topic/rec.jsonl", r.stderr + r.stdout)
+        with open(os.path.join(lake, "ai", "topic", "rec.jsonl"), "w") as fh:
+            fh.write("{}\n")
+        r = run_guard(corpus)
+        self.assertEqual(r.returncode, 0, r.stderr)   # both resolve -> pass
+
 
 if __name__ == "__main__":
     unittest.main()

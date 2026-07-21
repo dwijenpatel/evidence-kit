@@ -19,6 +19,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)")
+LAKE_REF = re.compile(r"\blake:([\w./\-]+)")
 # OKF reserved filenames (§3.1): not concept documents, exempt from the `type` rule.
 RESERVED = {"index.md", "log.md"}
 FENCE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$", re.DOTALL | re.MULTILINE)
@@ -125,6 +126,27 @@ class CorpusLinkTests(unittest.TestCase):
             elif not has_key(fm, "type"):
                 bad.append(f"{f}: frontmatter lacks a non-empty `type`")
         self.assertEqual(bad, [], "OKF conformance failures:\n" + "\n".join(bad))
+
+    def test_lake_citations_resolve(self):
+        """Every `lake:<path>` citation resolves inside the configured lake root.
+
+        Fails loudly when lake_root is unset but citations exist, and when the lake
+        is not present at lake_root — a project corpus without its lake is broken
+        by definition (single-machine design; see the kit spec)."""
+        config = load_config(self)
+        lake_root = config.get("lake_root")
+        broken = []
+        for f in tracked_markdown():
+            with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
+                body = fh.read()
+            for m in LAKE_REF.finditer(body):
+                target = m.group(1).rstrip(".")
+                if lake_root is None:
+                    broken.append(f"{f}: lake:{target} but no lake_root configured")
+                    continue
+                if not os.path.exists(os.path.join(os.path.expanduser(lake_root), target)):
+                    broken.append(f"{f} -> lake:{target}")
+        self.assertEqual(broken, [], "unresolved lake citations:\n" + "\n".join(broken))
 
 
 if __name__ == "__main__":
