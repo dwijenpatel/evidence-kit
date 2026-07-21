@@ -95,6 +95,19 @@ class ScaffoldMatrix(unittest.TestCase):
         r = run_guard(corpus)
         self.assertEqual(r.returncode, 0, r.stderr)   # both resolve -> pass
 
+    def test_lake_guard_enforces_tag_registry(self):
+        lake = run_scaffold(self.tmp, "lake")
+        os.makedirs(os.path.join(lake, "ai", "topic"), exist_ok=True)
+        with open(os.path.join(lake, "ai", "topic", "doc.md"), "w") as fh:
+            fh.write("---\ntype: Holdings\ntags: [unregistered-tag]\n---\n# d\n")
+        r = run_guard(lake)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("unregistered-tag", r.stderr + r.stdout)
+        with open(os.path.join(lake, "terminology.md"), "a") as fh:
+            fh.write("- `unregistered-tag` — test tag.\n")
+        r = run_guard(lake)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

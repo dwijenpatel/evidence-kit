@@ -20,6 +20,8 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK = re.compile(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)")
 LAKE_REF = re.compile(r"\blake:([\w./\-]+)")
+FM_TAGS = re.compile(r"^tags:\s*\[([^\]]*)\]", re.MULTILINE)
+REGISTERED = re.compile(r"`([A-Za-z0-9_-]+)`")
 # OKF reserved filenames (§3.1): not concept documents, exempt from the `type` rule.
 RESERVED = {"index.md", "log.md"}
 FENCE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$", re.DOTALL | re.MULTILINE)
@@ -147,6 +149,30 @@ class CorpusLinkTests(unittest.TestCase):
                 if not os.path.exists(os.path.join(os.path.expanduser(lake_root), target)):
                     broken.append(f"{f} -> lake:{target}")
         self.assertEqual(broken, [], "unresolved lake citations:\n" + "\n".join(broken))
+
+    def test_tags_are_registered(self):
+        """Lake profile: every frontmatter tag is defined in terminology.md's
+        '## Tag registry' section — one vocabulary, no silent splits."""
+        config = load_config(self)
+        if config.get("profile") != "lake":
+            self.skipTest("tag registry is a lake-profile rule")
+        with open(os.path.join(ROOT, "terminology.md"), encoding="utf-8") as fh:
+            term = fh.read()
+        section = term.split("## Tag registry", 1)
+        registry = set(REGISTERED.findall(section[1])) if len(section) == 2 else set()
+        bad = []
+        for f in tracked_markdown():
+            with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
+                fm = frontmatter(fh.read())
+            if not fm:
+                continue
+            m = FM_TAGS.search(fm)
+            if not m:
+                continue
+            for tag in (t.strip() for t in m.group(1).split(",") if t.strip()):
+                if tag not in registry:
+                    bad.append(f"{f}: tag `{tag}` not in terminology.md tag registry")
+        self.assertEqual(bad, [], "unregistered tags:\n" + "\n".join(bad))
 
 
 if __name__ == "__main__":
