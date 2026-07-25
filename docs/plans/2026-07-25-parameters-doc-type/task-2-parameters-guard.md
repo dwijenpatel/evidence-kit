@@ -96,6 +96,24 @@ Append these four methods to `class ScaffoldMatrix`:
         r = run_guard(corpus)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("regime", r.stderr + r.stdout)
+
+    def test_guard_rejects_parameters_row_that_is_entirely_blank(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, "|  |  |  |  |  |  |  |  |  |\n")
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `as_of`", r.stderr + r.stdout)
+
+    def test_guard_selects_parameters_doc_with_quoted_type(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        path = write_parameters(corpus, PARAM_ROW.replace("| 2026-07-25 |", "|  |"))
+        with open(path) as fh:
+            doc = fh.read()
+        with open(path, "w") as fh:
+            fh.write(doc.replace("type: Parameters", 'type: "Parameters"'))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `as_of`", r.stderr + r.stdout)
 ```
 
 Run:
@@ -104,9 +122,9 @@ Run:
 python3 -m unittest tests.test_scaffold -q
 ```
 
-**Expected failure:** three of the four fail. `test_guard_accepts_a_complete_parameters_table`
+**Expected failure:** five of the six fail. `test_guard_accepts_a_complete_parameters_table`
 passes vacuously (the guard has no opinion about Parameters docs yet, so it stays green);
-the three rejection tests fail on `assertNotEqual(r.returncode, 0)` with `0 == 0`, because
+the five rejection tests fail on `assertNotEqual(r.returncode, 0)` with `0 == 0`, because
 nothing is checking the table.
 
 ## Step 2 — add the constants and helpers to the guard template
@@ -119,10 +137,22 @@ add:
 # columns, warrant and decay carried per row.
 PARAM_COLUMNS = ("subject", "parameter", "value", "unit", "regime",
                  "as_of", "warrant", "decay", "source")
-PARAM_TYPE = re.compile(r"^type:\s*Parameters\s*$", re.MULTILINE)
+PARAM_TYPE = re.compile(r"""^type:\s*["']?Parameters["']?\s*(#.*)?$""", re.MULTILINE)
 ALIGN_ROW = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
 CELL_SPLIT = re.compile(r"(?<!\\)\|")
 ```
+
+`PARAM_TYPE` selects on the YAML **value** of `type`, so `type: Parameters`,
+`type: "Parameters"`, `type: 'Parameters'`, and `type: Parameters  # cost surface` all
+select the document — they are the same YAML scalar, and the kit double-quotes fixed
+frontmatter literals elsewhere (`okf_version: "0.1"`, and `title: "Storage prices"` in this
+task's own fixture below).
+
+This does NOT mean selection is a byte-exact match on the unquoted line `type: Parameters`.
+Under that rejected reading, `type: "Parameters"` fails the selector, the document is
+skipped **in full** at exit `0`, and nothing else catches it — `test_okf_conformance`'s
+`has_key` accepts the quoted line as a non-empty `type` — so an entire unvalidated
+Parameters table ships green.
 
 Immediately after the existing `has_key` function, add:
 
@@ -177,6 +207,10 @@ beside the other one):
         """A `type: Parameters` doc carries exactly one pipe table, with exactly the
         pinned column set, and every cell of every data row filled.
 
+        Exactly one row is skipped: the alignment row at offset 1, skipped **by
+        position**, and it must actually be an alignment row. Every row from offset 2
+        on is validated unconditionally.
+
         `regime` keeps a number inside the conditions it was measured under, without
         which a volume-tiered price and a queue-depth-specific latency read as
         contradictions. `as_of` and `source` are what a later decay recalibration
@@ -200,9 +234,10 @@ beside the other one):
                 bad.append(f"{f}: header is {list(header)}, expected "
                            f"{list(PARAM_COLUMNS)}")
                 continue
-            for offset, line in enumerate(blocks[0][1:], start=1):
-                if ALIGN_ROW.match(line):
-                    continue
+            if len(blocks[0]) < 2 or not ALIGN_ROW.match(blocks[0][1]):
+                bad.append(f"{f}: table has no `|---|` alignment row under the header")
+                continue
+            for offset, line in enumerate(blocks[0][2:], start=2):
                 cells = split_pipe_row(line)
                 if len(cells) != len(PARAM_COLUMNS):
                     bad.append(f"{f} data row {offset}: {len(cells)} cells, expected "
@@ -220,8 +255,19 @@ Run:
 python3 -m unittest tests.test_scaffold -q
 ```
 
-**Expected:** all tests pass, including the four added in Step 1 and the eight that
-existed before.
+**Expected:** all tests pass — the six added in Step 1 and the eight that existed before.
+
+**The alignment-row skip is positional, and that is load-bearing.** Exact example — a doc
+with the pinned header, the `|---|` row, then the single data row
+`|  |  |  |  |  |  |  |  |  |` produces exit `1` with nine messages, from
+``external/storage-prices.md data row 2: empty `subject` `` through ``… empty `source` ``.
+
+This does NOT mean the skip is a pattern match applied to every row. Under that rejected
+reading — `if ALIGN_ROW.match(line): continue` inside the loop — any row composed only of
+spaces, dashes, colons and pipes matches `ALIGN_ROW` and is silently dropped. Both
+`|  |  |  |  |  |  |  |  |  |` and `| - | - | - | - | - |  | - | - | - |` (a row using `-`
+for not-applicable, with `as_of` blank) would give exit `0` and no output, making PRD A0.4
+false for exactly the maximally-defective rows the guard exists to catch.
 
 ## Worked example
 
@@ -271,8 +317,9 @@ single `assertEqual(bad, [], …)` at the end fails once with all of them listed
 | Frontmatter `type: Parameters`, no pipe table | `needs exactly one pipe table, found 0` |
 | Two or more separate pipe tables | `needs exactly one pipe table, found 2` |
 | Header column renamed, reordered, added, or dropped | `header is [...], expected [...]` |
+| No `\|---\|` alignment row under the header | `table has no` |
 | Data row with the wrong number of cells | `cells, expected 9` |
-| Any empty cell | ``empty `<column>` `` |
+| Any empty cell, **including a row where every cell is empty** | ``empty `<column>` `` |
 
 A document without `type: Parameters` frontmatter is skipped entirely — this check has no
 opinion about any other document type, and must not acquire one.
@@ -288,7 +335,18 @@ wherever it lives.
 python3 -m unittest tests.test_scaffold -q
 grep -qF 'PARAM_COLUMNS' templates/tests/test_reference.py
 grep -qF 'test_parameters_tables_are_complete' templates/tests/test_reference.py
-grep -qF 'empty `as_of`' tests/test_scaffold.py
-! grep -rn '/Users/' templates/ tests/
-python3 -c "import ast,sys; ast.parse(open('templates/tests/test_reference.py').read())"
+grep -qF 'test_guard_rejects_parameters_row_missing_as_of' tests/test_scaffold.py && grep -qF 'test_guard_rejects_parameters_row_missing_source' tests/test_scaffold.py
+! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\bidea-gen\b' templates/ tests/
+python3 -c "import ast; ast.parse(open('templates/tests/test_reference.py').read())"
 ```
+
+Two of these are deliberately shaped; reverting either reintroduces a defect.
+
+- The fourth keys on the **existence of the negative tests**, which A0.4 requires ("with a
+  test proving the failure") and no other check enforces. It deliberately does NOT grep the
+  guard's message wording: `CLAUDE.md` rule 8 declares wording non-contractual, so a
+  rule-8-licensed rephrasing with updated assertions must keep this task passing.
+- The fifth carries `--exclude-dir=__pycache__` because the **first** check compiles
+  `tests/test_scaffold.py`, writing `.pyc` files whose `co_filename` embeds the absolute
+  source path. Without the exclusion this task fails its own check list deterministically,
+  on any implementation, in listed order.

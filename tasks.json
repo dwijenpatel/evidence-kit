@@ -11,7 +11,9 @@
       "grep -qF 'adoption-curve' method/GRADING.md",
       "grep -qF '_parameters.md.tmpl' method/PASS-PROTOCOL.md",
       "grep -qF '_parameters.md.tmpl' SKILL.md",
-      "! grep -rn '/Users/' method/ templates/ SKILL.md scaffold.py",
+      "grep -qF 'on every holdings doc and every' method/CONVENTIONS.md",
+      "! grep -n 'lake:' templates/corpus/external/_parameters.md.tmpl",
+      "! grep -rEn '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' method/ templates/ SKILL.md scaffold.py",
       "python3 -m unittest tests.test_scaffold -q"
     ]
   },
@@ -23,8 +25,8 @@
       "python3 -m unittest tests.test_scaffold -q",
       "grep -qF 'PARAM_COLUMNS' templates/tests/test_reference.py",
       "grep -qF 'test_parameters_tables_are_complete' templates/tests/test_reference.py",
-      "grep -qF 'empty `as_of`' tests/test_scaffold.py",
-      "! grep -rn '/Users/' templates/ tests/",
+      "grep -qF 'test_guard_rejects_parameters_row_missing_as_of' tests/test_scaffold.py && grep -qF 'test_guard_rejects_parameters_row_missing_source' tests/test_scaffold.py",
+      "! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' templates/ tests/",
       "python3 -c \"import ast; ast.parse(open('templates/tests/test_reference.py').read())\""
     ]
   }

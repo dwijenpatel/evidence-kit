@@ -9,12 +9,14 @@ table whose every row carries its own warrant, decay class, measurement regime, 
 
 **Architecture:** A new pass-time template `templates/corpus/external/_parameters.md.tmpl`
 carries a pinned nine-column markdown table. A new check in the corpus guard template
-(`templates/tests/test_reference.py`) finds any document whose frontmatter `type` is
-`Parameters`, requires exactly one pipe table with exactly the pinned header, and requires
-every cell of every data row to be non-empty. The kit-side smoke matrix
-(`tests/test_scaffold.py`) proves the check both passes a complete table and fails an
-incomplete one, exercising the real scaffold→guard path rather than a fixture.
-`scaffold.py` is not modified: `render_tree` already skips `_*`-prefixed templates.
+(`templates/tests/test_reference.py`) finds any document whose frontmatter **YAML value**
+for `type` is `Parameters` (quoted or bare), requires exactly one pipe table with the
+pinned header, requires an alignment row directly under it, and requires every cell of
+every data row — every row from offset 2 on, skipped by **position**, never by pattern —
+to be non-empty. The kit-side smoke matrix (`tests/test_scaffold.py`) proves the check both
+passes a complete table and fails an incomplete one, exercising the real scaffold→guard
+path rather than a fixture. `scaffold.py` is not modified: `render_tree` already skips
+`_*`-prefixed templates.
 
 ## Global Constraints
 
@@ -55,12 +57,12 @@ subject | parameter | value | unit | regime | as_of | warrant | decay | source
 
 | Criterion | Task |
 |---|---|
-| A0.1 template with per-row columns | T1 |
+| A0.1 template with per-row columns | T1 (Steps 1, 3b) |
 | A0.2 `tests.test_scaffold` passes | T1 (must not break), T2 (extends) |
 | A0.3 guard green on a scaffold containing a valid Parameters doc | T2 |
 | A0.4 missing `as_of` **or** `source` fails, with a test proving it | T2 |
 | A0.5 five substrate decay classes documented as worked examples | T1 |
-| A0.6 no absolute local path or private-project name in kit files | T1, T2 (both check) |
+| A0.6 no absolute path, machine-specific location, or private-project name | T1, T2 (both check) |
 
 ## Decision log
 
@@ -95,9 +97,39 @@ One, spent on the single one-way door. Everything else was derived from the repo
 Task 2 depends on Task 1 only for the column set, which is pinned in Global Constraints
 above and restated in each spec — the tasks are independently implementable.
 
+## Amendments — plan-review, 2026-07-25
+
+`/one-punch:plan-review` (full tier) returned **7 CONFIRMED, 8 REFUTED, 3 dropped**; the
+operator directed all seven applied. Report: [`plan-review-report.md`](../../../plan-review-report.md).
+Each amendment below is a defect in the ratified plan, not a scope change — the
+architecture and the pinned column set are untouched.
+
+| # | Was | Now | Why it mattered |
+|---|---|---|---|
+| F1 | `parameters-guard.checks[4]` = `! grep -rn '/Users/' templates/ tests/` | `--exclude-dir=__pycache__` added | **Blocker.** `checks[0]` compiles the test module, writing `.pyc` files whose `co_filename` embeds the absolute path; `checks[4]` then matched them. The task could not pass its own checks on any implementation. Reproduced. |
+| F2 | template `source` cell offered `lake:path §sec @ commit` | `[n] §sec`, plus an explicit prohibition and a `! grep -n 'lake:'` check | A doc authored as the template instructed died on the **pre-existing** `test_lake_citations_resolve`, since `scaffold.py` sets `lake_root` only for the `project` profile — the one profile that skips `external/`. PRD A0.1's "source §" pushed authors toward the fatal form. |
+| F3 | `if ALIGN_ROW.match(line): continue` inside the row loop | alignment row skipped by **position**; missing alignment row is now a defect | The pattern matched any row of spaces/dashes/colons/pipes, so `\|  \|  \|…\|` and a dash-filled row with blank `as_of` both passed silently — making A0.4 false for the maximally-defective rows. |
+| F4 | `PARAM_TYPE = r"^type:\s*Parameters\s*$"` | accepts quoted forms and trailing comments | `type: "Parameters"` failed the selector, so the **entire document** was skipped at exit 0 while `test_okf_conformance` stayed green. The old decision log cited `test_okf_conformance` as precedent — but its `has_key` accepts the quoted form, so the precedent argued the other way. |
+| F5 | ``grep -qF 'empty `as_of`' tests/test_scaffold.py`` | greps for the two negative **test names** | The old check made message wording contractual in a file that is not the message's source, contradicting `CLAUDE.md` rule 8 — a licensed rephrasing with updated assertions failed the task on a correct implementation. |
+| F6 | `! grep -rn '/Users/' …` | `! grep -rEn '/Users/\|/home/\|/Volumes/\|~/\|repos/evidence-\|\bidea-gen\b' …` | A0.6 forbids absolute paths, machine-specific locations, **and** private-project names; only the first was checked. The tilde idiom is live in this plan's own Global Constraints. |
+| F7 | `CONVENTIONS.md` `grade:` and provenance bullets left holdings-scoped | new **Step 3b** extends both to `Parameters` docs | The template carries `grade:` and Step 5 asserts Parameters docs have a provenance header, while `CONVENTIONS.md` said both were holdings-only — three files disagreeing, which `CLAUDE.md` rule 11 forbids. |
+
+Also corrected in passing: `task-2`'s checks block said `import ast,sys` where `tasks.json`
+said `import ast`. Behaviourally identical; now consistent.
+
+**Deliberately not applied** (refuted by verification, recorded so they are not
+re-litigated): the header comparison stays case-folded, though `CONVENTIONS.md` will say
+"exactly" — a residue worth a later one-line fix in one direction or the other. The
+`continue` after a header mismatch stays, and is *correct*: once the header has drifted,
+`zip(PARAM_COLUMNS, cells)` maps pinned names onto unknown columns. A zero-data-row table
+still passes. `tracked_markdown()`'s git-index blindness stays — it is pre-existing, shared
+by five checks, and A0.3 pins the guard's environment to a bare pre-git scaffold.
+
 ## Ratification
 
 - **ratified-by:** operator (dwijen)
 - **date:** 2026-07-25
+- **amended:** 2026-07-25, seven plan-review findings applied at operator direction
+- **re-ratification:** **pending** — a diff read, not a re-interview
 
 Any edit after ratification voids it.

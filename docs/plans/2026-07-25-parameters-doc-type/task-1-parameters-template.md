@@ -62,7 +62,7 @@ deliberately out and why>
 
 | subject | parameter | value | unit | regime | as_of | warrant | decay | source |
 |---|---|---|---|---|---|---|---|---|
-| <tier or part> | <what is measured> | <number> | <unit> | <the conditions the number was measured under> | <YYYY-MM-DD> | <A1 \| A2 \| A3 \| A4 \| M> | <decay class> | <[n], or lake:path §sec @ commit> |
+| <tier or part> | <what is measured> | <number> | <unit> | <the conditions the number was measured under> | <YYYY-MM-DD> | <A1 \| A2 \| A3 \| A4 \| M> | <decay class> | <[n] §sec — a numbered entry in this document's # Citations section> |
 
 <prose: what the ratios between these rows mean, what moved since the last pass, and which
 rows sit near a recheck trigger. Reasoning lives here; numbers live in the table.>
@@ -78,6 +78,21 @@ half-life is learned by re-fetching a source and measuring what moved, which an 
 unsourced row cannot support.
 
 **A cell may not contain `|`.** Escape it as `\|`, as the example row does.
+
+**`source` is a citation index, never a cross-corpus reference.** Write `[n]`, pointing at
+this document's `# Citations` section, with a `§` where the entry needs one. Do **not**
+write a `lake:` citation in this cell. The corpus guard's pre-existing
+`test_lake_citations_resolve` matches any `lake:<path>` string and resolves it against
+`lake_root` in `tests/corpus_guard.json`, and `scaffold.py` writes `lake_root` only for the
+`project` profile — which skips the `external/` tree entirely. So in a `standalone` or
+`lake` corpus, where this template's documents live, a `lake:` source cell fails the guard
+with `lake:<path> but no lake_root configured`: an unrelated check killing a well-formed
+Parameters doc.
+
+This does NOT mean `lake:` citations are banned from Parameters docs everywhere — in a
+`project` corpus, where `lake_root` is configured, they resolve normally. And it is NOT
+fixed by writing `lake:<path>` with angle brackets: brackets protect only the template
+text, never an author who substitutes a real path.
 
 **One table per document.** `subject` and `parameter` already separate rows; a second table
 would be a redundant axis, and the guard rejects it. Tables inside a fenced code block do
@@ -132,6 +147,53 @@ Replace with:
   what moved. The corpus guard enforces all of this; the pass-time skeleton is
   `templates/corpus/external/_parameters.md.tmpl`.
 ```
+
+## Step 3b — extend the two holdings-scoped bullets in `method/CONVENTIONS.md`
+
+Step 1's template carries `grade:`, and Step 5 asserts a Parameters doc "carries the same
+provenance header and grade" — but `CONVENTIONS.md` currently scopes both to *holdings*
+docs, and a Parameters doc is explicitly not one (Step 5 writes it "alongside the holdings
+doc"). `CLAUDE.md` rule 11 requires these files to agree.
+
+Find, under "OKF alignment":
+
+```
+- **Extension keys** (kit-defined, legal per OKF §4.1): `consumer` and `kit_commit` on the
+  corpus README; `grade: retrieval | adversarial` on every holdings doc — the
+  machine-legible half of the provenance header.
+```
+
+Replace with:
+
+```
+- **Extension keys** (kit-defined, legal per OKF §4.1): `consumer` and `kit_commit` on the
+  corpus README; `grade: retrieval | adversarial` on every holdings doc and every
+  `Parameters` doc — the machine-legible half of the provenance header.
+```
+
+Find, the first bullet under "## Document conventions":
+
+```
+- Every holdings document opens with a **provenance header**, split across the OKF
+  frontmatter (`grade:` and `timestamp:` — the machine-legible part) and prose immediately
+  below it: method (agents, sources), mirror location, and what the grade licenses. The
+  kit's `templates/corpus/external/_holdings.md.tmpl` is the pass-time skeleton.
+```
+
+Replace with:
+
+```
+- Every holdings document — and every `Parameters` document — opens with a **provenance
+  header**, split across the OKF frontmatter (`grade:` and `timestamp:` — the
+  machine-legible part) and prose immediately below it: method (agents, sources), mirror
+  location, and what the grade licenses. The pass-time skeletons are the kit's
+  `templates/corpus/external/_holdings.md.tmpl` and `_parameters.md.tmpl`.
+```
+
+This does NOT mean the guard enforces `grade:` on Parameters docs. Task 2's
+`test_parameters_tables_are_complete` has no opinion about frontmatter beyond `type`, and
+its `write_parameters` fixture deliberately omits `grade:`. This step is documentation
+scope only.
 
 ## Step 4 — add the substrate decay table to `method/GRADING.md`
 
@@ -218,8 +280,10 @@ This task adds no executable code, so it has no runtime error model. Its failure
 caught by `checks`:
 
 - A changed or reordered column header — the `grep -q` check fails with exit 1.
-- An absolute local path introduced into a method file or template — the `grep -rn` check
-  finds `/Users/`, and the negated command exits 1.
+- An absolute local path, tilde path, or private-project name introduced into a method file
+  or template — the negative `grep -rEn` check matches and the negated command exits 1.
+- A `lake:` citation left in the template's `source` cell — the `! grep -n 'lake:'` check
+  exits 1.
 - A malformed template breaking the smoke matrix — `tests.test_scaffold` fails.
 
 ## checks
@@ -232,6 +296,14 @@ grep -qF 'price-surface' method/GRADING.md
 grep -qF 'adoption-curve' method/GRADING.md
 grep -qF '_parameters.md.tmpl' method/PASS-PROTOCOL.md
 grep -qF '_parameters.md.tmpl' SKILL.md
-! grep -rn '/Users/' method/ templates/ SKILL.md scaffold.py
+grep -qF 'on every holdings doc and every' method/CONVENTIONS.md
+! grep -n 'lake:' templates/corpus/external/_parameters.md.tmpl
+! grep -rEn '/Users/|/home/|/Volumes/|~/|repos/evidence-|\bidea-gen\b' method/ templates/ SKILL.md scaffold.py
 python3 -m unittest tests.test_scaffold -q
 ```
+
+The last grep is a **negative** check: its job is catching contamination the steps above
+cannot enumerate, which is why it is broader than `/Users/`. A0.6 and `CLAUDE.md` rule 3
+forbid absolute paths, **machine-specific locations**, and **private-project names** — and
+the tilde idiom is live in this plan's own Global Constraints (`~/repos/evidence-kit`), so
+it is exactly the contamination an implementer is most likely to copy.
