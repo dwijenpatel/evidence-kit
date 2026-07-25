@@ -62,7 +62,7 @@ deliberately out and why>
 
 | subject | parameter | value | unit | regime | as_of | warrant | decay | source |
 |---|---|---|---|---|---|---|---|---|
-| <tier or part> | <what is measured> | <number> | <unit> | <the conditions the number was measured under> | <YYYY-MM-DD> | <A1 \| A2 \| A3 \| A4 \| M> | <decay class> | <[n] §sec — a numbered entry in this document's # Citations section> |
+| <tier or part> | <what is measured> | <number> | <unit> | <the conditions the number was measured under> | <YYYY-MM-DD> | <A1 \| A2 \| A3 \| A4 \| M \| B \| C> | <decay class> | <[n] §sec — a numbered entry in this document's # Citations section> |
 
 <prose: what the ratios between these rows mean, what moved since the last pass, and which
 rows sit near a recheck trigger. Reasoning lives here; numbers live in the table.>
@@ -78,6 +78,15 @@ half-life is learned by re-fetching a source and measuring what moved, which an 
 unsourced row cannot support.
 
 **A cell may not contain `|`.** Escape it as `\|`, as the example row does.
+
+**`warrant` is one of `A1` `A2` `A3` `A4` `M` `B` `C`.** `A1`–`A4` and `M` are the Tier-A
+warrants from `GRADING.md`. `B` means directional — no Tier-A warrant applies — and `C`
+means framing only. Both exist because most substrate facts are Tier B by construction
+(single-source vendor benchmarks, official *mechanism* claims, derived ratios), and without
+them the column has no legal value for the majority of rows. A **derived** row carries the
+weakest warrant among its inputs and states the derivation in `regime`; it does not inherit
+`A4` from an official input, because "import the mechanism, never the magnitude" makes a
+derived ratio a new claim.
 
 **`source` is a citation index, never a cross-corpus reference.** Write `[n]`, pointing at
 this document's `# Citations` section, with a `§` where the entry needs one. Do **not**

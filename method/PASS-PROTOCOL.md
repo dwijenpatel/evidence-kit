@@ -18,6 +18,13 @@ alignment"), the rest as prose immediately below — agent count/models, what wa
 out, what was mirrored, and what the grade means for the reader ("nothing here entered
 distilled/" for retrieval).
 
+Where a subtopic's evidence is a **surface of numbers** rather than a set of claims —
+prices, latencies, bandwidths, capacities, adoption shares — write a `Parameters` document
+alongside the holdings doc, from `templates/corpus/external/_parameters.md.tmpl`. It
+carries the same provenance header and grade. The split is by shape, not importance: a
+number whose meaning depends on the conditions it was measured under belongs in a table
+with a `regime` column; a claim belongs in prose with an inline evidence tag.
+
 ## Where a pass writes
 
 Where a lake corpus exists (see CONVENTIONS.md, "Lake and project profiles"), external

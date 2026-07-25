@@ -121,6 +121,25 @@ record ledgers, funding press, policy surfaces…), each with a half-life and a 
 origin corpus's table — `model-generation` / `vendor-policy` / `vendor-build` /
 `our-tree` / `their-tree` — is the worked example of the granularity to aim for.
 
+A second worked example, for corpora holding hardware and software cost-performance
+substrate — the granularity a `Parameters` table needs:
+
+| Class *(technology domains)* | Depends on | Half-life | Recheck trigger |
+|---|---|---|---|
+| `price-surface` | Vendor or cloud list pricing. | Quarters | A pricing-page change, or a new SKU family |
+| `perf-envelope` | A measured throughput, latency, or IOPS figure for a specific part or service. | Tied to the part | A firmware, driver, or silicon revision |
+| `media-generation` | A storage or memory generation. | 2–3 years | The next generation shipping at volume |
+| `spec-standard` | A published standard revision. | ~5 years | The next revision ratified |
+| `adoption-curve` | How broadly a technology is deployed. | ~1 year | A major platform changing its default |
+
+**These half-lives are provisional and deliberately uncalibrated.** A decay rate is not
+derivable a priori — it is learned by watching rows move. A corpus adopting this table
+should re-fetch its fastest class and measure what actually changed after a few weeks of
+holdings, then replace these figures with observed ones. This is safe to defer only while
+nothing rests on the corpus; it stops being safe the moment a decision cites a row. What
+cannot be deferred is the `as_of` date on every row, because it is what the recalibration
+measures against.
+
 **The composition rule:** a fact is only as durable as its fastest-decaying dependency.
 Replication buys warrant, not shelf life.
 

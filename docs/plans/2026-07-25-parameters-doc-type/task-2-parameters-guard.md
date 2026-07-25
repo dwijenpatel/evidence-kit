@@ -137,6 +137,10 @@ add:
 # columns, warrant and decay carried per row.
 PARAM_COLUMNS = ("subject", "parameter", "value", "unit", "regime",
                  "as_of", "warrant", "decay", "source")
+# A1-A4 and M are the Tier-A warrants from GRADING.md; B and C name the tier where
+# no Tier-A warrant applies, because most substrate facts are directional by
+# construction and the column would otherwise have no legal value for them.
+WARRANTS = frozenset({"A1", "A2", "A3", "A4", "M", "B", "C"})
 PARAM_TYPE = re.compile(r"""^type:\s*["']?Parameters["']?\s*(#.*)?$""", re.MULTILINE)
 ALIGN_ROW = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
 CELL_SPLIT = re.compile(r"(?<!\\)\|")
@@ -243,9 +247,18 @@ beside the other one):
                     bad.append(f"{f} data row {offset}: {len(cells)} cells, expected "
                                f"{len(PARAM_COLUMNS)}")
                     continue
-                for col, cell in zip(PARAM_COLUMNS, cells):
-                    if not cell:
-                        bad.append(f"{f} data row {offset}: empty `{col}`")
+                empty = [c for c, v in zip(PARAM_COLUMNS, cells) if not v]
+                for col in empty:
+                    bad.append(f"{f} data row {offset}: empty `{col}`")
+                if empty:
+                    continue
+                row = dict(zip(PARAM_COLUMNS, cells))
+                if row["warrant"] not in WARRANTS:
+                    bad.append(f"{f} data row {offset}: warrant `{row['warrant']}` "
+                               f"not one of {sorted(WARRANTS)}")
+                if classes and row["decay"] not in classes:
+                    bad.append(f"{f} data row {offset}: decay `{row['decay']}` "
+                               f"not in decay_classes")
         self.assertEqual(bad, [], "Parameters table defects:\n" + "\n".join(bad))
 ```
 

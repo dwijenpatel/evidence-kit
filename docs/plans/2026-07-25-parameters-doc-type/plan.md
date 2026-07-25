@@ -125,11 +125,49 @@ re-litigated): the header comparison stays case-folded, though `CONVENTIONS.md` 
 still passes. `tracked_markdown()`'s git-index blindness stays — it is pre-existing, shared
 by five checks, and A0.3 pins the guard's environment to a bare pre-git scaffold.
 
+## Amendment round 2 — warrant vocabulary, 2026-07-25
+
+Round 1's amendments were **re-ratified by the operator on 2026-07-25**. This round was
+directed in the same instruction and is pre-authorised; it voids that re-ratification by
+the usual rule, and the diff is the artifact.
+
+**The defect, found empirically by the phase-0b lake pass.** `GRADING.md` gives warrant
+letters only to the four **Tier-A** warrants, plus `M` for mathematics. Tier B
+("directional") and Tier C ("framing only") have **no letters at all**. But most substrate
+facts are Tier B by construction — single-source vendor benchmarks, official *mechanism*
+claims, derived ratios — so the `warrant` column had no legal value for them.
+
+Three of nine independent authoring agents wrote prose into that column (`derived from
+official datasheet`, `measured, single-source`, `stable — historical spec`) despite having
+the allowed values in their instructions. The six that conformed were the ones whose
+slices happened to be dominated by vendor commitments (`A4`) and independent measurements
+(`A3`) — claims that *have* letters. **That is a format defect, not an authoring failure:**
+n=9, and conformance tracked exactly whether a legal value existed.
+
+| # | Was | Now |
+|---|---|---|
+| W1 | `warrant` accepts `A1`–`A4`, `M` | also accepts **`B`** (directional — no Tier-A warrant) and **`C`** (framing only) |
+| W2 | Guard checks cells are non-empty | Guard **validates the enumeration**: `warrant ∈ {A1,A2,A3,A4,M,B,C}` |
+| W3 | `decay` unvalidated | Guard validates `decay` against `decay_classes` in `tests/corpus_guard.json`, and **skips the check when that key is absent** so existing corpora are unaffected |
+
+**Rejected: sub-lettering Tier B as `B1`–`B4`** to mirror `A1`–`A4` (single-source
+measurement / official mechanism / peer-reviewed-unreplicated / corroborated-by-analogue —
+`GRADING.md` already names those four kinds). It is the better long-run vocabulary, because
+a bare `B` says only "not A" and most rows in a substrate corpus will be `B`. But it changes
+how **every** corpus grades **every** claim, which is a method change well outside a
+doc-type plan's fence. Recorded as a candidate kit improvement; not taken here.
+
+**Derived rows.** A row computed from other rows carries the **weakest warrant among its
+inputs** and states the derivation in `regime`. It does not inherit `A4` from an official
+input: "import the mechanism, never the magnitude" and "not wider than what was measured"
+both make a derived ratio a *new* claim.
+
 ## Ratification
 
 - **ratified-by:** operator (dwijen)
 - **date:** 2026-07-25
-- **amended:** 2026-07-25, seven plan-review findings applied at operator direction
-- **re-ratification:** **pending** — a diff read, not a re-interview
+- **amended (round 1):** seven plan-review findings — **re-ratified 2026-07-25**
+- **amended (round 2):** warrant vocabulary W1–W3, pre-authorised in the same instruction
+- **re-ratification (round 2):** pending — a diff read, not a re-interview
 
 Any edit after ratification voids it.

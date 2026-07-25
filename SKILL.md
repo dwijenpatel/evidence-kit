@@ -45,7 +45,9 @@ Follow `method/PASS-PROTOCOL.md`. In brief:
    PASS-PROTOCOL.md, "Where a pass writes"): name the motivating consumer, add the
    implications line, check XREF.md before mirroring, regenerate it after.
 3. Write one holdings document per subtopic touched (start it from
-   `templates/corpus/external/_holdings.md.tmpl`; instantiate
+   `templates/corpus/external/_holdings.md.tmpl`; add a `Parameters` document from
+   `templates/corpus/external/_parameters.md.tmpl` where the evidence is a surface of
+   numbers rather than claims; instantiate
    `templates/corpus/external/_subtopic-README.md.tmpl` for any new subtopic folder), tag
    every claim, and update: the subtopic README (holdings + open questions), the corpus
    README (pass narrative + recheck schedule), and `terminology.md` for new terms of art.

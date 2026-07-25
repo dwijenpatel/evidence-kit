@@ -43,11 +43,12 @@ method rides on top; the format underneath is plain OKF.
   The kit's type vocabulary: `Corpus` (corpus README) · `Terminology` · `Subtopic Map`
   (external/README) · `Subtopic` (subtopic README) · `Holdings` (holdings doc) ·
   `Internal Evidence` · `Distilled Index` (distilled/README) · `Distilled` (the two Tier-A
-  docs). Unknown types are legal OKF; these are the ones consumers of an evidence corpus
-  can rely on.
+  docs) · `Parameters` (a cost/performance surface: one table, warrant and decay per row).
+  Unknown types are legal OKF; these are the ones consumers of an evidence corpus can rely
+  on.
 - **Extension keys** (kit-defined, legal per OKF §4.1): `consumer` and `kit_commit` on the
-  corpus README; `grade: retrieval | adversarial` on every holdings doc — the
-  machine-legible half of the provenance header.
+  corpus README; `grade: retrieval | adversarial` on every holdings doc and every
+  `Parameters` doc — the machine-legible half of the provenance header.
 - **index.md.** The bundle root carries `index.md` with `okf_version: "0.1"` frontmatter
   (the only index permitted frontmatter) and a top-level listing for progressive
   disclosure. Deeper directories rely on their READMEs; OKF consumers may synthesize
@@ -149,10 +150,11 @@ is load-bearing") — an honest weak contract beats a pretended strong one.
 
 ## Document conventions
 
-- Every holdings document opens with a **provenance header**, split across the OKF
-  frontmatter (`grade:` and `timestamp:` — the machine-legible part) and prose immediately
-  below it: method (agents, sources), mirror location, and what the grade licenses. The
-  kit's `templates/corpus/external/_holdings.md.tmpl` is the pass-time skeleton.
+- Every holdings document — and every `Parameters` document — opens with a **provenance
+  header**, split across the OKF frontmatter (`grade:` and `timestamp:` — the
+  machine-legible part) and prose immediately below it: method (agents, sources), mirror
+  location, and what the grade licenses. The pass-time skeletons are the kit's
+  `templates/corpus/external/_holdings.md.tmpl` and `_parameters.md.tmpl`.
 - Self-contained documents: define terms on first use or link `terminology.md`; a reader
   should never need the conversation that produced the doc.
 - **Corrections ledger** (in the corpus README): dated entries for every falsified,
@@ -165,3 +167,19 @@ is load-bearing") — an honest weak contract beats a pretended strong one.
   the queue for future passes. A README with scope + "no holdings yet" is a valid state.
 - Numbers that must line up get tables; reasoning stays in prose. Dates absolute, never
   "recently."
+- **`Parameters` documents** carry exactly one pipe table, whose header is exactly
+  `subject | parameter | value | unit | regime | as_of | warrant | decay | source`, with an
+  alignment row directly beneath it and every cell of every data row non-empty. A cell may
+  not contain `|` (escape it `\|`). `warrant` is one of `A1` `A2` `A3` `A4` `M` `B` `C` —
+  the Tier-A letters from GRADING.md, plus `B` for directional and `C` for framing-only,
+  because most substrate facts are Tier B by construction and the column would otherwise
+  have no legal value for them. A **derived** row carries the weakest warrant among its
+  inputs and states the derivation in `regime`. Two columns do work the others do not:
+  `regime` records the conditions the number was measured under, without which the
+  fit-check below ("not wider than what was measured") cannot be applied — a volume-tiered
+  price and a queue-depth-specific latency are different claims, not contradictory ones;
+  and `as_of` plus `source` are what make a later decay recalibration possible, since a
+  half-life is learned by re-fetching and measuring what moved. The corpus guard enforces
+  all of this — and validates `decay` against `decay_classes` in `tests/corpus_guard.json`
+  when that key is set. The pass-time skeleton is
+  `templates/corpus/external/_parameters.md.tmpl`.

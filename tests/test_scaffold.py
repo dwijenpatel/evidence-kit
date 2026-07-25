@@ -9,6 +9,33 @@ import unittest
 
 KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+PARAM_HEADER = ("| subject | parameter | value | unit | regime | as_of | warrant "
+                "| decay | source |\n"
+                "|---|---|---|---|---|---|---|---|---|\n")
+PARAM_ROW = ("| S3 Standard | storage price | 0.023 | USD/GB-month | us-east-1, first "
+             "50TB | 2026-07-25 | A4 | price-surface | [1] |\n")
+
+
+def write_parameters(corpus, row, header=PARAM_HEADER):
+    """Write a Parameters doc into a scaffolded corpus; return its path."""
+    path = os.path.join(corpus, "external", "storage-prices.md")
+    with open(path, "w") as fh:
+        fh.write('---\ntype: Parameters\ntitle: "Storage prices"\n'
+                 'description: Smoke fixture.\ntimestamp: 2026-07-25\n---\n\n'
+                 "# Storage prices\n\n" + header + row +
+                 "\n# Citations\n\n[1] https://example.com/pricing\n")
+    return path
+
+
+def set_decay_classes(corpus, classes):
+    """Add a decay_classes allow-list to a scaffolded corpus's guard config."""
+    cfg_path = os.path.join(corpus, "tests", "corpus_guard.json")
+    with open(cfg_path) as fh:
+        cfg = json.load(fh)
+    cfg["decay_classes"] = classes
+    with open(cfg_path, "w") as fh:
+        json.dump(cfg, fh, indent=2)
+
 
 def run_scaffold(tmp, profile, extra=None):
     out = os.path.join(tmp, f"corpus-{profile}")
@@ -189,6 +216,76 @@ class ScaffoldMatrix(unittest.TestCase):
         self.assertNotIn("mirrors/ai", row)                     # mirror namespace not a subtopic
         r = run_guard(lake)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+    def test_guard_accepts_a_complete_parameters_table(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW)
+        r = run_guard(corpus)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_guard_rejects_parameters_row_missing_as_of(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW.replace("| 2026-07-25 |", "|  |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `as_of`", r.stderr + r.stdout)
+
+    def test_guard_rejects_parameters_row_missing_source(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW.replace("| [1] |", "|  |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `source`", r.stderr + r.stdout)
+
+    def test_guard_rejects_parameters_header_drift(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW,
+                         header=PARAM_HEADER.replace("| regime |", "| conditions |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("regime", r.stderr + r.stdout)
+
+    def test_guard_rejects_parameters_row_that_is_entirely_blank(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, "|  |  |  |  |  |  |  |  |  |\n")
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `as_of`", r.stderr + r.stdout)
+
+    def test_guard_selects_parameters_doc_with_quoted_type(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        path = write_parameters(corpus, PARAM_ROW.replace("| 2026-07-25 |", "|  |"))
+        with open(path) as fh:
+            doc = fh.read()
+        with open(path, "w") as fh:
+            fh.write(doc.replace("type: Parameters", 'type: "Parameters"'))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `as_of`", r.stderr + r.stdout)
+
+    def test_guard_rejects_parameters_row_with_illegal_warrant(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW.replace("| A4 |", "| measured, single-source |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not one of", r.stderr + r.stdout)
+
+    def test_guard_accepts_tier_b_and_c_warrants(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW.replace("| A4 |", "| B |"))
+        self.assertEqual(run_guard(corpus).returncode, 0)
+        write_parameters(corpus, PARAM_ROW.replace("| A4 |", "| C |"))
+        self.assertEqual(run_guard(corpus).returncode, 0)
+
+    def test_guard_validates_decay_only_when_classes_configured(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW.replace("| price-surface |", "| their-tree |"))
+        self.assertEqual(run_guard(corpus).returncode, 0)   # unset -> not enforced
+        set_decay_classes(corpus, ["price-surface", "perf-envelope"])
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not in decay_classes", r.stderr + r.stdout)
 
 
 if __name__ == "__main__":

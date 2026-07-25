@@ -25,6 +25,17 @@ REGISTERED = re.compile(r"`([A-Za-z0-9_-]+)`")
 # OKF reserved filenames (§3.1): not concept documents, exempt from the `type` rule.
 RESERVED = {"index.md", "log.md"}
 FENCE = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$", re.DOTALL | re.MULTILINE)
+# A `type: Parameters` document is a cost/performance surface: one pipe table, pinned
+# columns, warrant and decay carried per row.
+PARAM_COLUMNS = ("subject", "parameter", "value", "unit", "regime",
+                 "as_of", "warrant", "decay", "source")
+# A1-A4 and M are the Tier-A warrants from GRADING.md; B and C name the tier where no
+# Tier-A warrant applies, because most substrate facts are directional by construction
+# and the column would otherwise have no legal value for them.
+WARRANTS = frozenset({"A1", "A2", "A3", "A4", "M", "B", "C"})
+PARAM_TYPE = re.compile(r"""^type:\s*["']?Parameters["']?\s*(#.*)?$""", re.MULTILINE)
+ALIGN_ROW = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+CELL_SPLIT = re.compile(r"(?<!\\)\|")
 
 
 def frontmatter(body):
@@ -39,6 +50,41 @@ def frontmatter(body):
 def has_key(fm, key):
     """True if the frontmatter text has a non-empty top-level `key:` line."""
     return re.search(rf"^{key}:\s*\S", fm, re.MULTILINE) is not None
+
+
+def split_pipe_row(line):
+    r"""Cells of one markdown pipe row: outer pipes dropped, each cell trimmed.
+
+    An escaped pipe (`\|`) is cell content, not a separator, and is unescaped in the
+    returned cell.
+    """
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|") and not body.endswith("\\|"):
+        body = body[:-1]
+    return [c.replace("\\|", "|").strip() for c in CELL_SPLIT.split(body)]
+
+
+def pipe_blocks(body):
+    """Contiguous runs of markdown pipe-table lines, in document order.
+
+    Lines inside a fenced code block are not table rows: a document may show an
+    example table in a fence without it counting as a second table.
+    """
+    blocks, current, fenced = [], [], False
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if not fenced and line.lstrip().startswith("|"):
+            current.append(line)
+        elif current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    return blocks
 
 def load_config(testcase):
     """Load corpus_guard.json inside the test (not at import time), so a missing
@@ -128,6 +174,62 @@ class CorpusLinkTests(unittest.TestCase):
             elif not has_key(fm, "type"):
                 bad.append(f"{f}: frontmatter lacks a non-empty `type`")
         self.assertEqual(bad, [], "OKF conformance failures:\n" + "\n".join(bad))
+
+    def test_parameters_tables_are_complete(self):
+        """A `type: Parameters` doc carries exactly one pipe table, with exactly the
+        pinned column set, and every cell of every data row filled.
+
+        Exactly one row is skipped: the alignment row at offset 1, skipped **by
+        position**, and it must actually be an alignment row. Every row from offset 2
+        on is validated unconditionally.
+
+        `regime` keeps a number inside the conditions it was measured under, without
+        which a volume-tiered price and a queue-depth-specific latency read as
+        contradictions. `as_of` and `source` are what a later decay recalibration
+        measures against — an undated row can never be rechecked, so it fails here
+        rather than rotting quietly.
+        """
+        config = load_config(self)
+        classes = config.get("decay_classes")
+        bad = []
+        for f in tracked_markdown():
+            with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
+                body = fh.read()
+            fm = frontmatter(body)
+            if fm is None or not PARAM_TYPE.search(fm):
+                continue
+            blocks = pipe_blocks(body)
+            if len(blocks) != 1:
+                bad.append(f"{f}: type Parameters needs exactly one pipe table, "
+                           f"found {len(blocks)}")
+                continue
+            header = tuple(c.lower() for c in split_pipe_row(blocks[0][0]))
+            if header != PARAM_COLUMNS:
+                bad.append(f"{f}: header is {list(header)}, expected "
+                           f"{list(PARAM_COLUMNS)}")
+                continue
+            if len(blocks[0]) < 2 or not ALIGN_ROW.match(blocks[0][1]):
+                bad.append(f"{f}: table has no `|---|` alignment row under the header")
+                continue
+            for offset, line in enumerate(blocks[0][2:], start=2):
+                cells = split_pipe_row(line)
+                if len(cells) != len(PARAM_COLUMNS):
+                    bad.append(f"{f} data row {offset}: {len(cells)} cells, expected "
+                               f"{len(PARAM_COLUMNS)}")
+                    continue
+                empty = [c for c, v in zip(PARAM_COLUMNS, cells) if not v]
+                for col in empty:
+                    bad.append(f"{f} data row {offset}: empty `{col}`")
+                if empty:
+                    continue
+                row = dict(zip(PARAM_COLUMNS, cells))
+                if row["warrant"] not in WARRANTS:
+                    bad.append(f"{f} data row {offset}: warrant `{row['warrant']}` "
+                               f"not one of {sorted(WARRANTS)}")
+                if classes and row["decay"] not in classes:
+                    bad.append(f"{f} data row {offset}: decay `{row['decay']}` "
+                               f"not in decay_classes")
+        self.assertEqual(bad, [], "Parameters table defects:\n" + "\n".join(bad))
 
     def test_lake_citations_resolve(self):
         """Every `lake:<path>` citation resolves inside the configured lake root.
