@@ -167,9 +167,11 @@ is load-bearing") — an honest weak contract beats a pretended strong one.
   the queue for future passes. A README with scope + "no holdings yet" is a valid state.
 - Numbers that must line up get tables; reasoning stays in prose. Dates absolute, never
   "recently."
-- **`Parameters` documents** carry exactly one pipe table, whose header is exactly
-  `subject | parameter | value | unit | regime | as_of | warrant | decay | source`, with an
-  alignment row directly beneath it and every cell of every data row non-empty. A cell may
+- **`Parameters` documents** carry exactly one pipe table, whose header is these nine names
+  in this order — `subject | parameter | value | unit | regime | as_of | warrant | decay |
+  source`, compared case-insensitively — with an alignment row directly beneath it and every
+  cell of every data row non-empty. Order is contractual, not the name set: swapping two
+  columns is a defect, because every downstream read is positional. A cell may
   not contain `|` (escape it `\|`). `warrant` is one of `A1` `A2` `A3` `A4` `M` `B` `C` —
   the Tier-A letters from GRADING.md, plus `B` for directional and `C` for framing-only,
   because most substrate facts are Tier B by construction and the column would otherwise

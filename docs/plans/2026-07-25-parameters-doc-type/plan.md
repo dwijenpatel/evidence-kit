@@ -71,7 +71,7 @@ subject | parameter | value | unit | regime | as_of | warrant | decay | source
 | Markdown pipe table for rows | YAML block in frontmatter; fenced YAML in body | `CONVENTIONS.md` "Document conventions" is explicit: *"Numbers that must line up get tables; reasoning stays in prose."* The kit is markdown-native and its value proposition is a human-walkable chain; a YAML blob is machine-first and invisible in the rendered doc. | High — every row rewritten, and the guard's parser replaced. |
 | Pass-time template (`_parameters.md.tmpl`) | Scaffold-time template | A Parameters doc is authored per subtopic during a pass, exactly like `_holdings.md.tmpl`. `render_tree` skips `_*` by prefix, so **`scaffold.py` needs no change** — which removes the scaffolder/template coupling risk `AGENTS.md` warns about. | Low — move the file and add a scaffold entry. |
 | Nine columns incl. `subject` and `regime` | PRD-literal seven columns | `subject` makes grouping-by-tier a column read instead of parsing a human-authored label. `regime` enforces `GRADING.md`'s fit-check that *"a warrant covers the claim inside its measured regime"* — without it, S3's first-50TB price and its above-50TB price read as a contradiction, and regime-blind crossing detection is the most likely way the downstream consumer produces confident garbage. | Very high — this is the one-way door; every row rewritten. Operator-ratified. |
-| Guard keys off frontmatter `type: Parameters` | A config list of parameter-doc paths in `corpus_guard.json` | Self-describing documents; a new Parameters doc is validated the moment it is written, with no config edit to forget. Consistent with `test_okf_conformance`, which already reads `type`. | Low. |
+| Guard keys off frontmatter `type: Parameters` | A config list of parameter-doc paths in `corpus_guard.json` | Self-describing documents; a new Parameters doc is validated with no config edit to forget — from the moment it is `git add`ed, since the guard scans tracked files. Consistent with `test_okf_conformance`, which already reads `type`. | Low. |
 | Exactly one pipe table per Parameters doc | Allow many, validate each | One table is sufficient by construction — `subject` and `parameter` already distinguish rows, so a second table would be a redundant axis. A single-table rule makes the guard unambiguous about what it is validating. | Low — relax the count check. |
 | Cells may not contain `|` | Support escaped pipes | Escaping doubles the parser's complexity to buy a case no parameter value needs. Stated as a rule so the failure is a guard error, not a silent mis-parse. | Low. |
 | Negative test in `tests/test_scaffold.py` | A fixture corpus committed under the kit | Exercises the real scaffold→write→guard path, matching the existing `test_lake_guard_enforces_tag_registry` precedent, and cannot drift from what `scaffold.py` actually emits. | Low. |
@@ -162,12 +162,26 @@ inputs** and states the derivation in `regime`. It does not inherit `A4` from an
 input: "import the mechanism, never the magnitude" and "not wider than what was measured"
 both make a derived ratio a *new* claim.
 
+## Residues applied — 2026-07-25
+
+The plan-review report's four residues sat below the finding bar (no divergence pair, so
+not findings) but were each real. All four applied after round 2 was re-ratified:
+
+| Residue | Disposition |
+|---|---|
+| Docs stricter than the guard: `CONVENTIONS.md` said the header must be "exactly" the pinned string while the guard case-folds | **Doc moved to the guard**, not the reverse — "these nine names in this order, compared case-insensitively". A capitalised header renders identically and means the same thing; rejecting it would be a trap with no payoff. The sentence now also states that *order* is contractual, which is the part that matters. |
+| Coverage gap: a `set(header) != set(PARAM_COLUMNS)` guard passes every test while accepting a **reordered** header | New fixture `test_guard_rejects_parameters_header_reordered` swaps `regime` and `as_of`. Closes the hole the report named: the wrong guard would then report a blank `regime` for a cell whose real column is `as_of`. **18 tests.** |
+| Decision-log overstatement: "validated the moment it is written" | Now "with no config edit to forget — from the moment it is `git add`ed, since the guard scans tracked files." Keeps the real contrast (no registration step) and stops endorsing the refuted git-staging finding. |
+| Under-sampled checks: nothing grepped `media-generation`, `Half-life`, `Recheck trigger`, or task-1 Step 3 | Four checks added to `tasks.json`. `tasks.json` is now a usable regression harness for this plan, not only its build gate. |
+
 ## Ratification
 
 - **ratified-by:** operator (dwijen)
 - **date:** 2026-07-25
 - **amended (round 1):** seven plan-review findings — **re-ratified 2026-07-25**
 - **amended (round 2):** warrant vocabulary W1–W3, pre-authorised in the same instruction
-- **re-ratification (round 2):** pending — a diff read, not a re-interview
+  — **re-ratified 2026-07-25**
+- **residues (4):** applied 2026-07-25, after the round-2 re-ratification; each is a
+  hardening edit, none touches the pinned column set or the architecture
 
 Any edit after ratification voids it.

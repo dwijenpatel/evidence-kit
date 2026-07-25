@@ -246,6 +246,18 @@ class ScaffoldMatrix(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("regime", r.stderr + r.stdout)
 
+    def test_guard_rejects_parameters_header_reordered(self):
+        """All nine names present, two swapped. A `set()` comparison would accept
+        this and then report a blank `regime` for a cell whose real column is
+        `as_of` — the header is an ordered contract, not a membership test."""
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_parameters(corpus, PARAM_ROW,
+                         header=PARAM_HEADER.replace("| regime | as_of |",
+                                                     "| as_of | regime |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("expected", r.stderr + r.stdout)
+
     def test_guard_rejects_parameters_row_that_is_entirely_blank(self):
         corpus = run_scaffold(self.tmp, "standalone")
         write_parameters(corpus, "|  |  |  |  |  |  |  |  |  |\n")
