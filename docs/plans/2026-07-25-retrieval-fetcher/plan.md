@@ -127,7 +127,7 @@ base32 self-check.
 ## Amendment 1 — plan-review blockers F1–F3, 2026-07-25
 
 `/one-punch:plan-review` (full tier) raised 53 candidates; **26 survived adversarial
-verification**; 3 were blockers. Report: [`plan-review-report.md`](../../../plan-review-report.md).
+verification**; 3 were blockers. Report: [`plan-review-report-round1.md`](plan-review-report-round1.md) (archived here when the lean re-review claimed the repo-root filename).
 The operator directed F1–F3 applied. The remaining 23 findings are **not** addressed here.
 
 Each blocker had the same shape: **it defeated an acceptance criterion while every gating check
@@ -218,7 +218,7 @@ grep replaced the four-ways-evadable branch grep.
 - **date:** *pending*
 - **amended (round 1):** F1–F3, 2026-07-25, pre-ratification
 - **amended (round 2):** F4–F26, 2026-07-25, pre-ratification, operator-directed
-- **review disposition:** all 26 confirmed findings from `plan-review-report.md` are now
+- **review disposition:** all 26 confirmed findings from `plan-review-report-round1.md` are now
   applied; nothing outstanding
 
 Any edit after ratification voids it.
