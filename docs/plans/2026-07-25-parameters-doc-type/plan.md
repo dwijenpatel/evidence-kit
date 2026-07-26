@@ -100,7 +100,8 @@ above and restated in each spec — the tasks are independently implementable.
 ## Amendments — plan-review, 2026-07-25
 
 `/one-punch:plan-review` (full tier) returned **7 CONFIRMED, 8 REFUTED, 3 dropped**; the
-operator directed all seven applied. Report: [`plan-review-report.md`](../../../plan-review-report.md).
+operator directed all seven applied. Report: [`plan-review-report.md`](plan-review-report.md) (moved here 2026-07-25 when the
+retrieval-fetcher review claimed the repo-root filename).
 Each amendment below is a defect in the ratified plan, not a scope change — the
 architecture and the pinned column set are untouched.
 
