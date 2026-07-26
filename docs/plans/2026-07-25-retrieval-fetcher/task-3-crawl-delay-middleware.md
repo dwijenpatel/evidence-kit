@@ -43,8 +43,26 @@ scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware
     async def robot_parser(self, request): ...     # awaitable; NO spider argument
                                                    # (verified against scrapy 2.17.0)
 scrapy.crawler.Crawler.engine.downloader.slots   # dict[str, Slot]; Slot has .delay
+scrapy.crawler.Crawler.engine.downloader.get_slot_key(request)  # -> str; THE slot
+                                                 # dict's key function (see below)
 scrapy.utils.httpobj.urlparse_cached(request)    # -> ParseResult
 ```
+
+**Two dicts, two key functions — pinned (plan-review R1).** The downloader's slot dict is
+keyed by `get_slot_key(request)`: `meta["download_slot"]` if set, else
+`urlparse_cached(request).hostname or ""` — **port stripped** (probed, 2.17.0).
+`robots_info` is keyed by **netloc** (host:port), matching how Scrapy keys its robots
+parsers and builds the robots URL. Concretely, for `http://127.0.0.1:60127/a`:
+
+| Dict | Key |
+|---|---|
+| `downloader.slots` | `"127.0.0.1"` |
+| `crawler.robots_info` | `"127.0.0.1:60127"` |
+
+Every slot lookup in this task and in task 5 goes through `get_slot_key(request)`.
+`slots.get(netloc)` happens to work on ordinary port-80/443 hosts and returns `None` on
+**every** CLAUDE.md rule-19 test server — the delay is silently never applied. **This does
+NOT mean the two dicts can share a key function.**
 
 Protego's parser, which Scrapy already constructs:
 
@@ -93,7 +111,15 @@ Registered at the same priority the stock middleware occupies, replacing it.
    `crawler.robots_info[netloc]` to the fetched URL, the SHA-256 of the response body,
    and the UTC timestamp — before the body is handed to the parser and lost. On an
    unusable robots response, record the URL with `None` for digest and timestamp; the
-   entry's presence still says "we asked."
+   entry's presence still says "we asked." **A robots fetch that dies in transport
+   (connection refused, DNS failure, timeout) produces no response at all**, so neither
+   rule above fires — hook the superclass's error path (`_robots_error` in 2.17.0) and
+   record `{"robots_url": f"{scheme}://{netloc}/robots.txt", "robots_sha256": None,
+   "robots_fetched_at": None}` there, synthesizing the URL exactly the way the superclass
+   builds it — **netloc, port kept** (probed: `robotsurl =
+   f"{url.scheme}://{url.netloc}/robots.txt"`). Without this entry, every page recorded on
+   that host falls to task 5's fallback and the manifest loses "we asked." (Plan-review
+   R6.)
 6. **The delay persists for the life of the crawl.** Nothing else may write `slot.delay`;
    task 2 disables AutoThrottle for exactly this reason. **This does NOT mean the delay is
    re-applied per response** — it is set once, and the guarantee comes from no other
@@ -191,15 +217,29 @@ class CrawlDelayTests(unittest.TestCase):
         # call _apply_delay when slots has no entry for the host, THEN create the
         # slot and call again -> slot.delay == 7.0. THIS IS THE F3 REGRESSION
         # TEST: with `_applied.add` before the slot lookup it stays at 5.0.
+
+    def test_slot_key_is_hostname_not_netloc(self): ...
+        # against the 127.0.0.1:<port> server: get_slot_key(request) == "127.0.0.1",
+        # the slots dict has that key, and it does NOT have "127.0.0.1:<port>".
+        # THIS IS THE R1 REGRESSION TEST: a slots.get(netloc) lookup returns None
+        # on every rule-19 test server, so the delay is never applied — and it
+        # also pins the key shape against a future Scrapy changing it.
+
+    def test_robots_transport_failure_records_url_with_nulls(self): ...
+        # point the middleware at a closed port (bind a socket, note the port,
+        # close it); after the robots fetch errors, robots_info[netloc] ==
+        # {"robots_url": f"http://{netloc}/robots.txt", "robots_sha256": None,
+        #  "robots_fetched_at": None}  (R6 — the no-response case)
 ```
 
 Implement each with the real middleware wired to a `Crawler` built by
 `scrapy.utils.test.get_crawler`, then assert on
-`crawler.engine.downloader.slots[<host>].delay`.
+`crawler.engine.downloader.slots[crawler.engine.downloader.get_slot_key(request)].delay`
+— the key comes from `get_slot_key`, never from the URL's netloc (R1).
 
-**One end-to-end timing test**, marked as the slow one: run it with `DOWNLOAD_DELAY = 1.0`
-against a host declaring `Crawl-delay: 3`, and assert two requests are separated by ≥3s
-wall-clock.
+**One end-to-end timing test** — `test_wall_clock_gap_honours_crawl_delay`, marked as the
+slow one: run it with `DOWNLOAD_DELAY = 1.0` against a host declaring `Crawl-delay: 3`,
+and assert two requests are separated by ≥3s wall-clock.
 
 **The declared delay must exceed `DOWNLOAD_DELAY` or the test proves nothing.** The original
 version used `Crawl-delay: 2` against `DOWNLOAD_DELAY = 5.0`: the middleware computes
@@ -221,13 +261,16 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
         self._applied: set[str] = set()      # netlocs whose delay is now set
         crawler.robots_info = {}             # netloc -> robots provenance (task 5 reads)
 
-    def _apply_delay(self, netloc, parser):
-        if netloc in self._applied:
+    def _apply_delay(self, request, parser):
+        downloader = self.crawler.engine.downloader
+        key = downloader.get_slot_key(request)   # hostname, port stripped — NEVER the
+                                                 # URL's netloc (plan-review R1)
+        if key in self._applied:
             return
-        # Look the slot up FIRST. Marking a netloc applied before we have a slot
+        # Look the slot up FIRST. Marking a key applied before we have a slot
         # strands it forever: the guard above returns on every later call and the
         # declared delay is never applied. (Plan-review F3.)
-        slot = self.crawler.engine.downloader.slots.get(netloc)
+        slot = downloader.slots.get(key)
         if slot is None:
             return                            # NOT marked; retried on the next request
         try:
@@ -235,9 +278,9 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
                                           or self.crawler.settings["USER_AGENT"])
         except Exception:
             logger.warning("crawl_delay lookup failed for %s; using DEFAULT_DELAY",
-                           netloc)
+                           key)
             declared = None
-        self._applied.add(netloc)             # a slot existed: this host is settled
+        self._applied.add(key)                # a slot existed: this host is settled
         if declared is None:
             return                            # keep DOWNLOAD_DELAY; do NOT zero it
         slot.delay = max(slot.delay, min(float(declared), self.MAX_DELAY))
@@ -310,12 +353,20 @@ grep -qF 'test_delay_is_capped_at_max' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_declared_delay_is_applied_to_the_slot' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_delay_survives_ten_responses' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_slot_created_after_robots_still_gets_the_delay' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_slot_key_is_hostname_not_netloc' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_robots_transport_failure_records_url_with_nulls' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_disallowed_path_is_still_blocked' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_wall_clock_gap_honours_crawl_delay' fetcher/tests/test_crawl_delay.py
 grep -qF 'CRAWL_DELAY_CEILING' fetcher/evidence_fetch/middlewares/crawl_delay.py
+grep -qF 'get_slot_key' fetcher/evidence_fetch/middlewares/crawl_delay.py
 grep -qF 'robots_info' fetcher/evidence_fetch/middlewares/crawl_delay.py
 grep -qF 'test_robots_info_records_url_digest_and_time' fetcher/tests/test_crawl_delay.py
 ! grep -qF 'AUTOTHROTTLE_MAX_DELAY' fetcher/evidence_fetch/middlewares/crawl_delay.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```
+
+Every test named in this spec's prose is gated by a name grep above (#11) — a listed test
+that is never written must fail a check, not fade into the suite silently.
 
 ## Regression value
 

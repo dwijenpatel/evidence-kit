@@ -20,6 +20,23 @@ would otherwise be re-researched from zero.
 | `method/GRADING.md` (modify) | The `as_of` = capture-date rule |
 | `method/CONVENTIONS.md` (modify) | One cross-reference |
 
+## Consumes
+
+From task 6 — the CLI, restated because this task's end-to-end test invokes it and a
+fresh implementer sees only this spec (plan-review R10):
+
+```
+uv run --project fetcher python -m evidence_fetch \
+    --seeds <path> --cache-root <dir> --manifest <path> \
+    --contact <URL or mailto: for the User-Agent> [--jobdir <dir>] [--limit N]
+```
+
+`--contact` is required (exit 2 without it); its value is formatted into the `USER_AGENT`
+(`evidence-fetch/0.1 (+<contact>)`), replacing a literal `{contact}` placeholder that
+must never reach the wire. From task 5: every manifest entry carries the 22
+`REQUIRED_KEYS`; the ones this task's test asserts on are `useragent_sent` (the exact
+header value sent), `raw_bytes_sha256`, and `seed_signal`.
+
 ## Provides
 
 ```python
@@ -323,12 +340,25 @@ test_capture_url_fetches_through_the_ordinary_spider_path
 ```
 
 It serves a fake capture from the local `ThreadingHTTPServer` at a path shaped like
-`/web/20200101002334id_/http://example.com/`, runs the spider against a seeds file
-containing that URL, and asserts the resulting manifest entry has the same key set as any
-other entry — no Wayback-specific fields, body byte-identical. If someone later adds a
-Wayback branch, this test still passes, so pair it with the check below that greps for the
-absence of such a branch. For that grep's sake, `fetch.py` must not name Wayback even in a
-comment or docstring — this constraint lives here, not in the spider file it constrains.
+`/web/20200101002334id_/http://example.com/` and puts that URL in a Seeds row. **The
+fetcher is invoked through the CLI, as a subprocess** — the command in `Consumes`, with
+`--contact "mailto:test@example.invalid"` — **never by constructing the spider
+in-process** (plan-review R10): an in-process run bypasses the `--contact` gate, so the
+settings' literal `{contact}` placeholder would reach the wire with neither of the test's
+original assertions noticing. Assertions, all three: the capture's manifest entry has the
+same key set as any other entry (no Wayback-specific fields); the cached body is
+byte-identical to what the server sent; and **`useragent_sent` contains
+`mailto:test@example.invalid`** — the contact value, not the placeholder, went out. If
+someone later adds a Wayback branch, this test still passes, so pair it with the check
+below that greps for the absence of such a branch. For that grep's sake, `fetch.py` must
+not name Wayback even in a comment or docstring — this constraint lives here, not in the
+spider file it constrains.
+
+**On "verbatim" and the test count:** the verbatim file above carries the **12** unit
+tests, all network-free, all executed at authoring time (12/12 pass). This e2e test is a
+**13th**, written at build time against the pinned invocation above — it cannot run until
+tasks 2–6 exist, which is why it ships as a pinned description rather than code. After
+adding it the file has 13 tests, and the check below greps for its name.
 
 **This does NOT mean the fetcher rewrites live URLs into capture URLs automatically.**
 Choosing to reach for an archived copy is a judgement about a source, made by an operator or

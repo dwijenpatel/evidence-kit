@@ -98,8 +98,8 @@ half-jitter variants measurably cluster worse.
 import unittest
 from datetime import datetime, timezone
 
-from evidence_fetch.backoff import (Disposition, backoff_delay, classify_status,
-                                    parse_retry_after)
+from evidence_fetch.backoff import (RETRYABLE, Disposition, backoff_delay,
+                                    classify_status, parse_retry_after)
 
 NOW = datetime(2026, 7, 25, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -157,6 +157,18 @@ class ClassifyTests(unittest.TestCase):
 
     def test_success_is_ok(self):
         self.assertIs(classify_status(200, attempt=0), Disposition.OK)
+
+
+class CacheRetrySeamTests(unittest.TestCase):
+    def test_httpcache_ignores_exactly_the_retryable_set(self):
+        # Task 2's HTTPCACHE_IGNORE_HTTP_CODES keeps retryable responses OUT of
+        # Scrapy's cache. DummyPolicy serves a stored 403 to every later request
+        # for that URL, so a drifted list means retries are answered from disk and
+        # backoff never touches the wire (plan-review R4). settings.py is built
+        # before this module exists and must not import it, so this equality test
+        # is the seam's only guard.
+        from evidence_fetch import settings
+        self.assertEqual(set(settings.HTTPCACHE_IGNORE_HTTP_CODES), RETRYABLE)
 ```
 
 Run: `uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q`
@@ -239,7 +251,9 @@ def classify_status(status: int, attempt: int,
 Note `float(int(value))` rather than `float(value)`: RFC 9110's delay-seconds form is an
 integer, and accepting `"1.5e3"` would silently diverge from what the header can mean.
 
-Re-run → 14 pass.
+Re-run → 15 pass. (`test_httpcache_ignores_exactly_the_retryable_set` imports
+`evidence_fetch.settings` — task 2's module, already built; it needs no Scrapy machinery,
+only the constant.)
 
 ## Error model
 
@@ -256,5 +270,6 @@ grep -qF 'test_429_and_503_are_retryable' fetcher/tests/test_backoff.py
 grep -qF 'test_403_is_retryable_before_exhaustion' fetcher/tests/test_backoff.py
 grep -qF 'test_403_becomes_blocked_only_after_exhaustion' fetcher/tests/test_backoff.py
 grep -qF 'test_past_date_clamps_to_zero' fetcher/tests/test_backoff.py
+grep -qF 'test_httpcache_ignores_exactly_the_retryable_set' fetcher/tests/test_backoff.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```

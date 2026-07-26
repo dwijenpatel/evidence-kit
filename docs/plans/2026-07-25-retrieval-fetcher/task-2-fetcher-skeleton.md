@@ -381,7 +381,10 @@ NEWSPIDER_MODULE = "evidence_fetch.spiders"
 
 # --- politeness (CLAUDE.md rule 17) -----------------------------------------
 ROBOTSTXT_OBEY = True
-CONCURRENT_REQUESTS_PER_DOMAIN = 1      # one connection per host, always
+# One connection per host, always. The comment sits ABOVE the assignment on purpose:
+# the gating check anchors the whole line (`^CONCURRENT_REQUESTS_PER_DOMAIN = 1$`),
+# and a trailing comment turns that check red against this task's own code (R7).
+CONCURRENT_REQUESTS_PER_DOMAIN = 1
 CONCURRENT_REQUESTS = 8                 # across hosts; politeness is per-host
 DOWNLOAD_DELAY = 5.0                    # floor where no Crawl-delay is declared
 
@@ -408,13 +411,22 @@ CRAWL_DELAY_CEILING = 60.0
 USER_AGENT = "evidence-fetch/0.1 (+{contact})"
 
 # --- storage ----------------------------------------------------------------
-# DummyPolicy returns every cached response regardless of HTTP cache semantics, which
+# DummyPolicy serves every STORED response regardless of HTTP cache semantics, which
 # is what "resume without refetching what I already have" means here (A9). This is a
 # fetch-avoidance layer only; the durable artifact is the content-addressed file the
 # manifest points at, so HTTPCACHE_DIR may be deleted at any time without data loss.
 HTTPCACHE_ENABLED = True
 HTTPCACHE_POLICY = "scrapy.extensions.httpcache.DummyPolicy"
 HTTPCACHE_EXPIRATION_SECS = 0           # 0 = never expire
+# What gets STORED is filtered: DummyPolicy.should_cache_response consults this list
+# (probed, 2.17.0). Retryable statuses must never be stored -- DummyPolicy serves a
+# stored 403 to every later request for that URL, so the spider's retries (task 6
+# item 7) would be answered from disk, flagged "cached", skipped by the recorder,
+# and backoff would never touch the wire (plan-review R4; probed: 4 callbacks, ONE
+# wire hit). The list must equal backoff.RETRYABLE (task 4); a test there asserts
+# the equality, because this module is built before backoff.py exists and must not
+# import it. The comment sits above the line for the same R7 reason as above.
+HTTPCACHE_IGNORE_HTTP_CODES = [403, 408, 429, 500, 502, 503, 504, 522, 524]
 # A RELATIVE value here resolves through scrapy.utils.project.data_path to
 # <cwd>/.scrapy/httpcache -- outside the cache root and outside the one
 # `cache/` ignore line. The CLI (task 6) overrides this at runtime to
@@ -508,9 +520,12 @@ grep -qE '^CRAWL_DELAY_CEILING = 60.0$' fetcher/evidence_fetch/settings.py
 grep -qE '^AUTOTHROTTLE_ENABLED = False$' fetcher/evidence_fetch/settings.py
 grep -qE '^RANDOMIZE_DOWNLOAD_DELAY = False$' fetcher/evidence_fetch/settings.py
 grep -qE '^RETRY_ENABLED = False$' fetcher/evidence_fetch/settings.py
+grep -qE '^HTTPCACHE_IGNORE_HTTP_CODES = \[403, 408, 429, 500, 502, 503, 504, 522, 524\]$' fetcher/evidence_fetch/settings.py
 ! grep -qE '^RETRY_HTTP_CODES' fetcher/evidence_fetch/settings.py
 grep -qF 'test_settings_that_defeat_a1_stay_off' fetcher/tests/test_settings.py
 grep -qF 'test_scrapy_retry_stays_off' fetcher/tests/test_settings.py
+test -f scaffold.py
+test -d templates/
 ! grep -rn 'evidence_fetch' scaffold.py templates/
 uv sync --project fetcher
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
@@ -519,4 +534,7 @@ python3 -m unittest tests.test_scaffold -q
 
 The `! grep -rn 'evidence_fetch' scaffold.py templates/` check enforces CLAUDE.md rule 13
 mechanically: the root must stay runnable with no install step, and the cheapest way for
-that to break is an import added for convenience.
+that to break is an import added for convenience. The `test -f scaffold.py` / `test -d
+templates` pair ahead of it exists so the negative grep can never pass vacuously against
+paths that stopped existing (#13) — the pairing rule every other negative check in this
+plan already follows.

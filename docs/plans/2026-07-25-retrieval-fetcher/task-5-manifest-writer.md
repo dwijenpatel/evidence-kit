@@ -39,9 +39,19 @@ From task 3 — the robots provenance producer and the live slot delay:
 
 ```python
 crawler.robots_info: dict[str, dict]
-# netloc -> {"robots_url": str, "robots_sha256": str|None, "robots_fetched_at": str|None}
-crawler.engine.downloader.slots[netloc].delay   # float; the delay in effect for the host
+# keyed by NETLOC (host:port) ->
+#   {"robots_url": str, "robots_sha256": str|None, "robots_fetched_at": str|None}
+
+crawler.engine.downloader.get_slot_key(request)  # -> str; THE slot dict's key:
+#   meta["download_slot"] if set, else hostname with the PORT STRIPPED (probed, 2.17.0)
+crawler.engine.downloader.slots[get_slot_key(request)].delay   # delay in effect
 ```
+
+**The two dicts never share a key function (plan-review R1).** For
+`http://127.0.0.1:60127/a`: slot key `"127.0.0.1"`, `robots_info` key
+`"127.0.0.1:60127"`. A `slots[netloc]` read raises `KeyError` on the first recorded
+response of every CLAUDE.md rule-19 test — task 3 pins the rule; this restatement exists
+because the recorder is the other consumer.
 
 ## Provides
 
@@ -87,7 +97,7 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
   "content_type": "text/html; charset=utf-8",
   "request_headers": {"User-Agent": "evidence-fetch/0.1 (+mailto:…)", "Accept": "*/*"},
   "response_headers": {"Content-Type": "text/html; charset=utf-8", "ETag": "W/\"abc\""},
-  "redirect_chain": ["https://example.com/pricing"],
+  "redirect_chain": ["https://example.com/pricing", "https://example.com/pricing/"],
   "etag": "W/\"abc\"",
   "etag_is_weak": true,
   "last_modified": "Fri, 24 Jul 2026 09:00:00 GMT",
@@ -112,9 +122,19 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
   (header absent), `response_protocol` (Scrapy exposes none), `etag`, `etag_is_weak`
   (`null` exactly when `etag` is), `last_modified`, `prior_fetch_ref`, `seed_signal`, and
   `fetch_policy.robots_sha256` / `robots_fetched_at`. Everything else is never `null`.
+- The sample above is the **post-redirect entry of a one-hop redirect** (`/pricing` →
+  301 → `/pricing/`): the chain runs requested → final, `url_final` equals its last
+  element, and the 301 hop itself is a separate, earlier line (see the redirect rule
+  below) carrying the **same** `attempt_n: 1`. (#14 — the earlier sample showed a
+  one-element chain with a differing `url_final`, contradicting the rule beside it.)
 - `fetched_at` is UTC, ISO 8601, millisecond precision, `Z` suffix. Not local time. It is
   the instant the recorder observed the response (response side), not the request send time.
-- `attempt_n` is **1-based** and counts attempts for this URL *in this run*. Both
+- `attempt_n` is **1-based** and counts scheduling attempts of this URL within one
+  frontier lineage: a freshly enqueued URL starts at 1, and the count increments **only**
+  when the spider reschedules after `Disposition.RETRY` — a redirect hop inherits it
+  unchanged (rule below), and it **survives a `JOBDIR` resume**, because the frontier
+  serialises `request.meta` (probed: disk queues persist via `Request.to_dict`, meta
+  included). A retry interrupted at `attempt_n: 2` resumes as 2, not 1 (#15). Both
   `backoff_delay` and `classify_status` take a **0-based** attempt. The conversion is
   computed **once** — `zero_based = entry["attempt_n"] - 1` — and passed to both; a second
   `- 1` at either call site is the off-by-one this note exists to prevent.
@@ -128,20 +148,36 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
 - `fetch_policy` is an object with **exactly** `delay_used_s`, `robots_url`,
   `robots_sha256`, `robots_fetched_at` — validated by `append_entry` (the one nested
   validation; header objects stay free-form). `delay_used_s` is the **configured slot
-  delay** read from `crawler.engine.downloader.slots[netloc].delay` at record time — with
-  `RANDOMIZE_DOWNLOAD_DELAY = False` the configured and actual delays coincide. The three
-  robots fields come from `crawler.robots_info[netloc]` (task 3); never from a second
-  robots.txt GET.
+  delay** read from `crawler.engine.downloader.slots[get_slot_key(request)].delay` at
+  record time (the key is `get_slot_key(request)`, never netloc — R1; the slot exists at
+  record time, because the response just traversed it and Scrapy's slot GC skips slots
+  with active requests). With `RANDOMIZE_DOWNLOAD_DELAY = False` the configured and
+  actual delays coincide. The three robots fields come from `crawler.robots_info[netloc]`
+  (task 3); never from a second robots.txt GET.
+- **When `robots_info` has no entry for the request's netloc at record time**, the three
+  robots fields fall back to `"robots_url": "<scheme>://<netloc>/robots.txt"` with
+  `robots_sha256` and `robots_fetched_at` `null` — synthesized with **netloc, port
+  kept**, matching how the robots middleware itself builds the URL (probed:
+  `f"{url.scheme}://{url.netloc}/robots.txt"`; a hostname-only synthesis names a
+  different origin on every rule-19 test server). Exactly two reachable moments need
+  this (plan-review R6): **the robots.txt response's own entry** — the recorder at 1000
+  runs before the robots middleware (100) stores `robots_info`, probed at source — and
+  a response on a host whose robots fetch died in transport before task 3's error hook
+  ran. **This does NOT license a second robots GET**, and `delay_used_s` still reads the
+  live slot.
 - `redirect_chain` **always includes the requested URL as element 0**, so a non-redirected
   fetch has a one-element chain, never an empty one. `url_final` equals the chain's last
   element.
 - `prior_fetch_ref` is the `raw_bytes_sha256` of the most recent prior **2xx** fetch of the
   same `url_requested`, or `null` on first fetch. It is deliberately the digest, not an entry
   id: the digest is what a recheck diffs against, and it needs no id scheme to stay stable.
-- `seed_signal` is copied from the `Seeds` row that queued this URL, `null` for a
-  link-followed or Wayback URL. Carrying it here means the provenance of a fetch survives
-  even if the seed row is later edited — and PRD §11 makes that provenance a weak growth
-  signal that cannot be reconstructed later.
+- `seed_signal` is copied from the `Seeds` row that queued this URL (it travels in
+  `request.meta`, so redirect hops inherit it); `null` exactly when **no Seeds row queued
+  it** — a host's `/robots.txt` fetch, a link-followed URL (none exist in v1), or a
+  programmatically enqueued one. A Wayback capture URL that sits in a Seeds row carries
+  that row's signal like any other seed. Carrying it here means the provenance of a fetch
+  survives even if the seed row is later edited — and PRD §11 makes that provenance a
+  weak growth signal that cannot be reconstructed later.
 - `response_headers` and `request_headers` preserve original casing and are objects, not
   lists. A repeated header joins with `", "` (RFC 9110 §5.3 field-order semantics).
 - `schema` is `1`. Conditional-GET fields (`validators_sent`, `conditional_hit`) existed
@@ -184,9 +220,11 @@ This is A3, and it is the behaviour the whole task exists for. Fetching
  "disposition":"ok","prior_fetch_ref":null, …}
 ```
 
-**Two lines. The URL is not marked failed.** The error body of the 503 is cached and hashed
-like any other response — a WAF challenge page or a maintenance notice is evidence about the
-attempt, and discarding it destroys the ability to recognise the same interstitial later.
+**Two lines for this URL. The URL is not marked failed.** (The host's own `/robots.txt`
+line precedes them in the file — a robots fetch is a recorded attempt, task 6 item 4 —
+and is elided here.) The error body of the 503 is cached and hashed like any other
+response — a WAF challenge page or a maintenance notice is evidence about the attempt,
+and discarding it destroys the ability to recognise the same interstitial later.
 
 `prior_fetch_ref` is `null` on **both** lines: the 503 was not a 2xx, so it never becomes
 anything's prior reference.
@@ -216,11 +254,17 @@ anything's prior reference.
   `HttpCacheMiddleware` serves cache hits through every `process_response`, and a cache hit
   is not an attempt (rule 15). Without this skip, deleting `.jobdir/` (which the runbook
   calls disposable) mints manifest lines for fetches that never happened.
-- **A redirect hop is its own attempt.** At priority 1000 the recorder sees the 301 before
-  `RedirectMiddleware` (600) converts it, so the hop is recorded — its body cached, its
-  `redirect_chain` ending at the hop, `disposition: "ok"` (3xx is `OK`). The final entry's
-  `redirect_chain` spans requested → final via `response.meta["redirect_urls"]`. A
-  two-hop-free redirect example therefore produces **two** manifest lines.
+- **A redirect hop is its own manifest ENTRY, never its own attempt (#12).** At priority
+  1000 the recorder sees the 301 before `RedirectMiddleware` (600) converts it, so the hop
+  is recorded — its body cached, its `redirect_chain` ending at the hop, `disposition:
+  "ok"` (3xx is `OK`). The final entry's `redirect_chain` spans requested → final via
+  `response.meta["redirect_urls"]`. A one-hop redirect therefore produces **two** manifest
+  lines — **both carrying the same `attempt_n`**: the counter travels in `request.meta`,
+  and `RedirectMiddleware` builds the follow-up with `request.replace(...)`, which
+  inherits meta (probed). Only a `Disposition.RETRY` reschedule increments it. **This does
+  NOT mean the hop entry is optional** — it means a redirect never eats retry budget: if
+  hops incremented the counter, `zero_based = attempt_n - 1` would walk a much-redirected
+  URL toward `blocked` without a single retryable status ever arriving.
 - It must record even when a later middleware will raise. Read the installed Scrapy for the
   exact registration mechanics — that seam is why the task is `contract`; the priority and
   the four rules above are not seams, they are pinned.
@@ -261,6 +305,9 @@ test_foreign_lines_are_skipped_by_the_reader     # sub-project 2's lines never b
 test_unknown_schema_version_on_a_fetcher_line_raises
 test_gzip_response_caches_wire_bytes             # 38 gzip octets, not 1013 inflated (F4)
 test_cached_flag_writes_no_entry                 # a cache hit is not an attempt (#13)
+test_robots_fallback_synthesizes_url_with_netloc # robots_info missing at record time ->
+                                                 # {scheme}://{netloc}/robots.txt + two
+                                                 # nulls; port KEPT (R6)
 ```
 
 ## Checks
@@ -274,14 +321,27 @@ grep -qF 'response_protocol' fetcher/evidence_fetch/manifest.py
 ! grep -qF 'validators_sent' fetcher/evidence_fetch/manifest.py
 ! grep -rqF 'normalized_content_sha256' fetcher/evidence_fetch/
 grep -qF '"cached"' fetcher/evidence_fetch/middlewares/record.py
+grep -qF 'get_slot_key' fetcher/evidence_fetch/middlewares/record.py
+grep -qF 'test_append_then_load_roundtrips' fetcher/tests/test_manifest.py
+grep -qF 'test_missing_required_key_raises' fetcher/tests/test_manifest.py
+grep -qF 'test_unknown_key_raises' fetcher/tests/test_manifest.py
 grep -qF 'test_503_then_200_produces_two_entries_and_url_not_failed' fetcher/tests/test_manifest.py
-grep -qF 'test_partial_final_line_is_tolerated' fetcher/tests/test_manifest.py
+grep -qF 'test_prior_fetch_ref_is_none_when_only_non_2xx_exist' fetcher/tests/test_manifest.py
 grep -qF 'test_prior_fetch_ref_points_at_most_recent_2xx' fetcher/tests/test_manifest.py
+grep -qF 'test_partial_final_line_is_tolerated' fetcher/tests/test_manifest.py
+grep -qF 'test_corrupt_middle_line_raises' fetcher/tests/test_manifest.py
+grep -qF 'test_redirect_chain_includes_requested_url_when_no_redirect' fetcher/tests/test_manifest.py
+grep -qF 'test_keys_are_sorted_in_output' fetcher/tests/test_manifest.py
 grep -qF 'test_foreign_lines_are_skipped_by_the_reader' fetcher/tests/test_manifest.py
+grep -qF 'test_unknown_schema_version_on_a_fetcher_line_raises' fetcher/tests/test_manifest.py
 grep -qF 'test_gzip_response_caches_wire_bytes' fetcher/tests/test_manifest.py
 grep -qF 'test_cached_flag_writes_no_entry' fetcher/tests/test_manifest.py
+grep -qF 'test_robots_fallback_synthesizes_url_with_netloc' fetcher/tests/test_manifest.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```
+
+Every test in "Tests to write" is gated by a name grep (#11) — the review found the plan
+claiming "test gated" for tests no check named, two of them cited in the coverage table.
 
 The negative check on `normalized_content_sha256` is scoped to the whole
 `fetcher/evidence_fetch/` package, not one file — the review showed the one-file version

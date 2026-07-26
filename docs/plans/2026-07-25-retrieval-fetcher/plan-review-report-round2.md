@@ -3,7 +3,7 @@
 **Target:** `docs/plans/2026-07-25-retrieval-fetcher/` after Amendments 1–2 · `tasks.json` (91 checks)
 **Tier:** lean — 2 translators · 2 merged finders · 2 grouped verifiers. Round 1 (full tier, 26
 findings, all applied) is archived at
-[`plan-review-report-round1.md`](docs/plans/2026-07-25-retrieval-fetcher/plan-review-report-round1.md).
+[`plan-review-report-round1.md`](plan-review-report-round1.md).
 **Mode:** report-only. Nothing in the plan was modified.
 
 **Verdict: do not build yet — the amendments themselves introduced a new crop of blockers.** 18
