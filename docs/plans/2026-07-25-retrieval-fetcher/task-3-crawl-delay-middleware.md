@@ -62,6 +62,21 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
     MAX_DELAY: float       # from settings CRAWL_DELAY_CEILING, the 60s ceiling
 ```
 
+It also maintains, on the crawler object itself:
+
+```python
+crawler.robots_info: dict[str, dict]
+# netloc -> {"robots_url": str,          # the URL actually fetched
+#            "robots_sha256": str|None,  # sha256 of the robots.txt bytes; None if unusable
+#            "robots_fetched_at": str|None}  # UTC ISO-8601 ms Z; None if unusable
+```
+
+This is the **only** place robots.txt bytes are observable — stock Scrapy hands the body
+to Protego and keeps just the parser, so if this middleware does not record the digest at
+fetch time, task 5's `fetch_policy` has no producer and A5's "proof this fetch was polite"
+is three nulls forever (plan-review F10). The record middleware (task 5) reads this dict;
+never a second GET for robots.txt.
+
 Registered at the same priority the stock middleware occupies, replacing it.
 
 ## Behaviour, pinned
@@ -74,6 +89,11 @@ Registered at the same priority the stock middleware occupies, replacing it.
 4. Never *lower* a slot delay below what is already set. A declared 1s must not undo a
    larger delay another component set.
 5. Allow/disallow behaviour is unchanged — that is the superclass's job and it is correct.
+6a. **When the robots.txt response arrives, record it**: set
+   `crawler.robots_info[netloc]` to the fetched URL, the SHA-256 of the response body,
+   and the UTC timestamp — before the body is handed to the parser and lost. On an
+   unusable robots response, record the URL with `None` for digest and timestamp; the
+   entry's presence still says "we asked."
 6. **The delay persists for the life of the crawl.** Nothing else may write `slot.delay`;
    task 2 disables AutoThrottle for exactly this reason. **This does NOT mean the delay is
    re-applied per response** — it is set once, and the guarantee comes from no other
@@ -163,6 +183,10 @@ class CrawlDelayTests(unittest.TestCase):
         # slot.delay is still 7.0 at the end. THIS IS THE F1 REGRESSION TEST:
         # with AUTOTHROTTLE_ENABLED = True it reads 5.0 after the first 200.
 
+    def test_robots_info_records_url_digest_and_time(self): ...
+        # after robots.txt resolves for a host, crawler.robots_info[netloc] has the
+        # fetched URL, sha256 of ROBOTS, and an ISO-8601 Z timestamp (F10)
+
     def test_slot_created_after_robots_still_gets_the_delay(self): ...
         # call _apply_delay when slots has no entry for the host, THEN create the
         # slot and call again -> slot.delay == 7.0. THIS IS THE F3 REGRESSION
@@ -195,6 +219,7 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
         self.DEFAULT_DELAY = crawler.settings.getfloat("DOWNLOAD_DELAY", 5.0)
         self.MAX_DELAY = crawler.settings.getfloat("CRAWL_DELAY_CEILING", 60.0)
         self._applied: set[str] = set()      # netlocs whose delay is now set
+        crawler.robots_info = {}             # netloc -> robots provenance (task 5 reads)
 
     def _apply_delay(self, netloc, parser):
         if netloc in self._applied:
@@ -216,6 +241,17 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
         if declared is None:
             return                            # keep DOWNLOAD_DELAY; do NOT zero it
         slot.delay = max(slot.delay, min(float(declared), self.MAX_DELAY))
+```
+
+Where the robots.txt *response* is observable (the seam differs by version — in 2.17 it
+is the callback the superclass attaches to its own robots request), add:
+
+```python
+crawler.robots_info[netloc] = {
+    "robots_url": response.url,
+    "robots_sha256": hashlib.sha256(response.body).hexdigest(),
+    "robots_fetched_at": now_iso_ms_z(),
+}
 ```
 
 **Why the one-shot memo is now safe.** It was not, before: `AUTOTHROTTLE_ENABLED = True`
@@ -275,6 +311,8 @@ grep -qF 'test_declared_delay_is_applied_to_the_slot' fetcher/tests/test_crawl_d
 grep -qF 'test_delay_survives_ten_responses' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_slot_created_after_robots_still_gets_the_delay' fetcher/tests/test_crawl_delay.py
 grep -qF 'CRAWL_DELAY_CEILING' fetcher/evidence_fetch/middlewares/crawl_delay.py
+grep -qF 'robots_info' fetcher/evidence_fetch/middlewares/crawl_delay.py
+grep -qF 'test_robots_info_records_url_digest_and_time' fetcher/tests/test_crawl_delay.py
 ! grep -qF 'AUTOTHROTTLE_MAX_DELAY' fetcher/evidence_fetch/middlewares/crawl_delay.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```

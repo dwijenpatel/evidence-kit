@@ -19,6 +19,7 @@ No network code in this task — the spider is task 6.
 | `fetcher/tests/__init__.py` (new) | Empty |
 | `fetcher/tests/test_cache.py` (new) | Cache path tests |
 | `fetcher/tests/test_seeds.py` (new) | Seed reader tests |
+| `fetcher/tests/test_settings.py` (new) | Settings assertions — the values are behaviour |
 
 **The repository root gains no dependency** (CLAUDE.md rule 13). Nothing under `fetcher/`
 may be imported by `scaffold.py` or `templates/tests/test_reference.py`.
@@ -414,14 +415,21 @@ USER_AGENT = "evidence-fetch/0.1 (+{contact})"
 HTTPCACHE_ENABLED = True
 HTTPCACHE_POLICY = "scrapy.extensions.httpcache.DummyPolicy"
 HTTPCACHE_EXPIRATION_SECS = 0           # 0 = never expire
+# A RELATIVE value here resolves through scrapy.utils.project.data_path to
+# <cwd>/.scrapy/httpcache -- outside the cache root and outside the one
+# `cache/` ignore line. The CLI (task 6) overrides this at runtime to
+# <abspath(cache-root)>/httpcache; data_path passes absolute paths through
+# unchanged. This default is a fallback, never the operating value. (#15)
 HTTPCACHE_DIR = "httpcache"
 
 # --- retry ------------------------------------------------------------------
-# 403 is included deliberately (CLAUDE.md rule 18): WAFs return it for rate limiting,
-# and RFC 9110 §15.5.4 does not say 403 is permanent.
-RETRY_ENABLED = True
-RETRY_TIMES = 3
-RETRY_HTTP_CODES = [403, 429, 500, 502, 503, 504, 408, 522, 524]
+# The SPIDER is the only retry mechanism (task 6 item 7): classify_status decides,
+# backoff_delay/parse_retry_after pace. Scrapy's RetryMiddleware must stay off --
+# its source contains zero occurrences of "Retry-After", so with it on, a 503
+# carrying `Retry-After: 120` is retried at the slot delay and the header is never
+# honoured; worse, the callback never sees a retryable response while its retries
+# remain, so the spider's own retry logic becomes dead code. (Plan-review F5.)
+RETRY_ENABLED = False
 
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
@@ -431,6 +439,39 @@ FEED_EXPORT_ENCODING = "utf-8"
 `USER_AGENT` carries a `{contact}` placeholder that the spider (task 6) formats from a
 required `--contact` argument. **This does NOT mean the literal string `{contact}` is ever
 sent**; task 6 fails fast when no contact is supplied.
+
+## Step 4b — `fetcher/tests/test_settings.py`
+
+The settings above are behaviour, and text-presence greps cannot gate behaviour — the
+review measured `grep -qF '… = 1'` passing on `= 16`. These tests import and assert.
+
+```python
+import unittest
+
+from evidence_fetch import settings
+
+
+class PolitenessSettingsTests(unittest.TestCase):
+    def test_politeness_settings_hold(self):
+        self.assertEqual(settings.CONCURRENT_REQUESTS_PER_DOMAIN, 1)
+        self.assertTrue(settings.ROBOTSTXT_OBEY)
+        self.assertGreaterEqual(settings.DOWNLOAD_DELAY, 5.0)
+        self.assertEqual(settings.CRAWL_DELAY_CEILING, 60.0)
+
+    def test_settings_that_defeat_a1_stay_off(self):
+        # AutoThrottle rewrites slot.delay with a global DOWNLOAD_DELAY floor;
+        # randomize jitters below a declared minimum. Both measured breaking A1.
+        self.assertFalse(settings.AUTOTHROTTLE_ENABLED)
+        self.assertFalse(settings.RANDOMIZE_DOWNLOAD_DELAY)
+
+    def test_scrapy_retry_stays_off(self):
+        # The spider owns retry so Retry-After is honoured (plan-review F5).
+        self.assertFalse(settings.RETRY_ENABLED)
+        self.assertFalse(hasattr(settings, "RETRY_HTTP_CODES"))
+```
+
+Run → 3 pass. These are the real gate on the settings; the anchored greps in `## Checks`
+are redundant tripwires that catch a hand-edit without a test run.
 
 ## Step 5 — `fetcher/README.md`
 
@@ -462,12 +503,14 @@ Substrings only (CLAUDE.md rule 8).
 test -f fetcher/pyproject.toml
 test -f fetcher/README.md
 grep -qF 'scrapy>=2.17' fetcher/pyproject.toml
-grep -qF 'CONCURRENT_REQUESTS_PER_DOMAIN = 1' fetcher/evidence_fetch/settings.py
-grep -qF 'CRAWL_DELAY_CEILING = 60.0' fetcher/evidence_fetch/settings.py
-grep -qF 'AUTOTHROTTLE_ENABLED = False' fetcher/evidence_fetch/settings.py
-grep -qF 'RANDOMIZE_DOWNLOAD_DELAY = False' fetcher/evidence_fetch/settings.py
-! grep -qE '^AUTOTHROTTLE_ENABLED = True|^RANDOMIZE_DOWNLOAD_DELAY = True' fetcher/evidence_fetch/settings.py
-grep -qE '^RETRY_HTTP_CODES = \[403,' fetcher/evidence_fetch/settings.py
+grep -qE '^CONCURRENT_REQUESTS_PER_DOMAIN = 1$' fetcher/evidence_fetch/settings.py
+grep -qE '^CRAWL_DELAY_CEILING = 60.0$' fetcher/evidence_fetch/settings.py
+grep -qE '^AUTOTHROTTLE_ENABLED = False$' fetcher/evidence_fetch/settings.py
+grep -qE '^RANDOMIZE_DOWNLOAD_DELAY = False$' fetcher/evidence_fetch/settings.py
+grep -qE '^RETRY_ENABLED = False$' fetcher/evidence_fetch/settings.py
+! grep -qE '^RETRY_HTTP_CODES' fetcher/evidence_fetch/settings.py
+grep -qF 'test_settings_that_defeat_a1_stay_off' fetcher/tests/test_settings.py
+grep -qF 'test_scrapy_retry_stays_off' fetcher/tests/test_settings.py
 ! grep -rn 'evidence_fetch' scaffold.py templates/
 uv sync --project fetcher
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q

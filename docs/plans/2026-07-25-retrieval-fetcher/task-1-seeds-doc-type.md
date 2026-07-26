@@ -252,12 +252,18 @@ Input `seeds.md` body:
 | https://vercel.com/pricing | 2026-07-25 |  | how does egress pricing compare |
 ```
 
-Exact guard output (exit 1):
+The guard exits 1 and its failure output **ends with** these two lines:
 
 ```
 Seeds table defects:
 seeds.md seed row 3: empty `signal`
 ```
+
+**This is a substring contract, not the whole output** — `unittest` has
+`longMessage = True`, so `assertEqual(bad, [], …)` prints its standard list diff first and
+appends the custom message after `" : "`. A test that asserts the exact full output rejects
+the very implementation this document specifies; assert with `assertIn`, per rule 8 and the
+Step 4 fixtures.
 
 Row 2 passes. The offset is a **block offset** — the header is row 0, the alignment row is
 row 1, so the first data row is row 2. This matches the `Parameters` check exactly and is

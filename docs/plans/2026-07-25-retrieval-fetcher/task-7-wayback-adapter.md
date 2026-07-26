@@ -44,8 +44,18 @@ def parse_cdx(body: bytes) -> list[Capture]
     Returns [] for an empty response body."""
 
 def distinct_digests(captures: list[Capture]) -> list[str]
-    """Digests in first-appearance order, deduplicated GLOBALLY."""
+    """ALL digests, first-appearance order, deduplicated GLOBALLY. No filtering."""
+
+def content_digests(captures: list[Capture]) -> list[str]
+    """Digests representing retrievable content: status == "200" only, and never
+    EMPTY_SHA1. This — not distinct_digests — is the input to "how many states has
+    this page taken"; counting a failed or empty capture as a state inflates every
+    staleness report."""
 ```
+
+(The full implementation and test file are below — this task is `code-complete`, and after
+the review that word is load-bearing: the ratified draft shipped signatures only, which left
+`cdx_query_url`'s output and `parse_cdx`'s empty-body behaviour open. Now they are code.)
 
 ## The `id_` modifier — why it matters
 
@@ -89,25 +99,195 @@ Reading "4 rows" as "4 changes" is the defect. Three distinct digests over four 
 means the page took three distinct states, and the alternation is Wayback seeing different
 variants — not the page changing four times.
 
-## Tests to write
+## Step 1 — `fetcher/evidence_fetch/wayback.py`, verbatim
 
+```python
+"""Wayback URL construction and CDX parsing. No network code lives here — a capture
+URL is fetched by the ordinary spider path, and CDX responses arrive as cached bytes."""
+
+import json
+import re
+from dataclasses import dataclass
+from urllib.parse import urlencode
+
+EMPTY_SHA1 = "3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ"   # base32 SHA-1 of b"": nothing captured
+TS14 = re.compile(r"^\d{14}$")
+CDX_BASE = "https://web.archive.org/cdx/search/cdx"
+FIELDS = "timestamp,digest,statuscode"
+
+
+def capture_url(timestamp: str, original_url: str) -> str:
+    """Replay URL returning ORIGINAL bytes (the id_ modifier), scheme included."""
+    if not TS14.match(timestamp):
+        raise ValueError(f"need a 14-digit timestamp, got {timestamp!r}")
+    return f"https://web.archive.org/web/{timestamp}id_/{original_url}"
+
+
+def cdx_query_url(url: str, *, from_ts: str | None = None, to_ts: str | None = None,
+                  collapse_digest: bool = True, limit: int | None = None) -> str:
+    """CDX search URL. Parameter order is pinned: url, output, fl, from, to,
+    collapse, limit — so the string is stable and testable."""
+    params = [("url", url), ("output", "json"), ("fl", FIELDS)]
+    if from_ts is not None:
+        params.append(("from", from_ts))
+    if to_ts is not None:
+        params.append(("to", to_ts))
+    if collapse_digest:
+        params.append(("collapse", "digest"))
+    if limit is not None:
+        params.append(("limit", str(limit)))
+    return f"{CDX_BASE}?{urlencode(params)}"
+
+
+@dataclass(frozen=True)
+class Capture:
+    timestamp: str      # 14 digits
+    digest: str         # base32 SHA-1, as CDX reports it
+    status: str         # CDX statuscode — a STRING, may be "-" for unknown
+
+
+def parse_cdx(body: bytes) -> list[Capture]:
+    """CDX JSON -> Captures. Row 0 is the header row and is dropped. An empty body
+    AND an empty JSON array both mean "no captures" and return [] — CDX sends the
+    former for never-archived URLs, and treating either as an error would turn
+    "never archived" into a crash."""
+    if not body.strip():
+        return []
+    try:
+        rows = json.loads(body)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"not valid CDX JSON: {e}") from e
+    if not isinstance(rows, list):
+        raise ValueError("not valid CDX JSON: top level is not a list")
+    captures = []
+    for i, row in enumerate(rows[1:], start=1):
+        if not isinstance(row, list) or len(row) < 3:
+            raise ValueError(f"CDX row {i}: expected 3 fields, got {row!r}")
+        captures.append(Capture(str(row[0]), str(row[1]), str(row[2])))
+    return captures
+
+
+def distinct_digests(captures: list[Capture]) -> list[str]:
+    """All digests, first-appearance order, deduplicated globally — CDX's own
+    collapse=digest is adjacent-only and over-reports change ~8x (measured)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in captures:
+        if c.digest not in seen:
+            seen.add(c.digest)
+            out.append(c.digest)
+    return out
+
+
+def content_digests(captures: list[Capture]) -> list[str]:
+    """Digests of retrievable content only: status "200", never EMPTY_SHA1."""
+    return distinct_digests([c for c in captures
+                             if c.status == "200" and c.digest != EMPTY_SHA1])
 ```
-test_capture_url_uses_id_modifier                 # asserts 'id_/' is in the result
-test_capture_url_rejects_short_timestamp          # 8 digits -> ValueError
-test_cdx_query_url_includes_collapse_and_fl
-test_parse_cdx_drops_the_header_row
-test_parse_cdx_handles_empty_body                 # b"" -> []
-test_distinct_digests_dedupes_globally_not_adjacently   # the 4-row/3-digest example above
-test_distinct_digests_preserves_first_appearance_order
-test_empty_sha1_constant_marks_no_content
+
+## Step 2 — `fetcher/tests/test_wayback.py`, verbatim
+
+```python
+import base64
+import hashlib
+import unittest
+
+from evidence_fetch.wayback import (EMPTY_SHA1, Capture, capture_url, cdx_query_url,
+                                    content_digests, distinct_digests, parse_cdx)
+
+CDX_BODY = (b'[["timestamp","digest","statuscode"],'
+            b'["20200101002334","JI6OR3QR4CI526JD6TMMNZNV4QPMPQCH","200"],'
+            b'["20200101100018","WJM2KPM4GF3QK2BISVUH2ASX64NOUY7L","200"],'
+            b'["20200101100757","JI6OR3QR4CI526JD6TMMNZNV4QPMPQCH","200"],'
+            b'["20200106100020","O2XBZT4EZOUL6RS37E7DQFWAWWBEVGVJ","200"]]')
+
+
+class CaptureUrlTests(unittest.TestCase):
+    def test_capture_url_uses_id_modifier(self):
+        url = capture_url("20200101002334", "http://example.com/")
+        self.assertEqual(
+            url, "https://web.archive.org/web/20200101002334id_/http://example.com/")
+        self.assertIn("id_/", url)
+
+    def test_capture_url_rejects_short_timestamp(self):
+        for bad in ("20200101", "2020010100233", "202001010023345", "not-a-ts"):
+            with self.assertRaises(ValueError, msg=bad) as cm:
+                capture_url(bad, "http://example.com/")
+            self.assertIn("14-digit timestamp", str(cm.exception))
+
+
+class CdxQueryTests(unittest.TestCase):
+    def test_cdx_query_url_includes_collapse_and_fl(self):
+        self.assertEqual(
+            cdx_query_url("example.com"),
+            "https://web.archive.org/cdx/search/cdx?url=example.com&output=json"
+            "&fl=timestamp%2Cdigest%2Cstatuscode&collapse=digest")
+
+    def test_cdx_query_url_orders_optional_params(self):
+        self.assertEqual(
+            cdx_query_url("example.com", from_ts="2020", to_ts="2021", limit=25),
+            "https://web.archive.org/cdx/search/cdx?url=example.com&output=json"
+            "&fl=timestamp%2Cdigest%2Cstatuscode&from=2020&to=2021"
+            "&collapse=digest&limit=25")
+
+
+class ParseCdxTests(unittest.TestCase):
+    def test_parse_cdx_drops_the_header_row(self):
+        captures = parse_cdx(CDX_BODY)
+        self.assertEqual(len(captures), 4)
+        self.assertEqual(captures[0],
+                         Capture("20200101002334",
+                                 "JI6OR3QR4CI526JD6TMMNZNV4QPMPQCH", "200"))
+
+    def test_parse_cdx_handles_empty_body(self):
+        for empty in (b"", b"  \n", b"[]"):
+            self.assertEqual(parse_cdx(empty), [], msg=empty)
+
+    def test_parse_cdx_rejects_invalid_json(self):
+        with self.assertRaises(ValueError) as cm:
+            parse_cdx(b"<html>oops</html>")
+        self.assertIn("not valid CDX JSON", str(cm.exception))
+
+    def test_parse_cdx_rejects_short_row(self):
+        with self.assertRaises(ValueError) as cm:
+            parse_cdx(b'[["timestamp","digest","statuscode"],["20200101002334"]]')
+        self.assertIn("CDX row", str(cm.exception))
+
+
+class DigestTests(unittest.TestCase):
+    def test_distinct_digests_dedupes_globally_not_adjacently(self):
+        self.assertEqual(len(distinct_digests(parse_cdx(CDX_BODY))), 3)
+
+    def test_distinct_digests_preserves_first_appearance_order(self):
+        self.assertEqual(distinct_digests(parse_cdx(CDX_BODY)), [
+            "JI6OR3QR4CI526JD6TMMNZNV4QPMPQCH",
+            "WJM2KPM4GF3QK2BISVUH2ASX64NOUY7L",
+            "O2XBZT4EZOUL6RS37E7DQFWAWWBEVGVJ"])
+
+    def test_content_digests_filters_non_200_and_empty_captures(self):
+        captures = parse_cdx(CDX_BODY) + [
+            Capture("20200107000000", EMPTY_SHA1, "200"),   # empty capture
+            Capture("20200108000000", "SOMEREDIRECTDIGEST0000000000000A", "301"),
+            Capture("20200109000000", "UNKNOWNSTATUSDIGEST000000000000B", "-"),
+        ]
+        self.assertEqual(len(distinct_digests(captures)), 6)   # pure dedupe keeps all
+        self.assertEqual(len(content_digests(captures)), 3)    # staleness input filters
+
+    def test_empty_sha1_constant_marks_no_content(self):
+        computed = base64.b32encode(hashlib.sha1(b"").digest()).decode("ascii")
+        self.assertEqual(computed, EMPTY_SHA1)
 ```
 
-`test_distinct_digests_dedupes_globally_not_adjacently` uses the exact four rows above and
-asserts `3`. If someone later "optimises" it to adjacent dedup, that test fails — which is
-the point, because the bug it prevents is silent and would inflate every staleness report.
+`test_distinct_digests_dedupes_globally_not_adjacently` uses the exact four rows from the
+worked example and asserts `3` — if someone later "optimises" to adjacent dedup, it fails.
+`test_content_digests_filters_non_200_and_empty_captures` pins the split the review found
+unpinned: **`distinct_digests` never filters; `content_digests` is the staleness input.**
+Counting a failed or empty capture as a page-state inflates every staleness report; counting
+it out of the raw dedupe would silently hide captures from a completeness audit. Both
+behaviours are wanted — under different names.
 
-No test makes a network call (CLAUDE.md rule 19). CDX responses are fixtures — real ones,
-copied from a verified live query and trimmed.
+No test makes a network call (CLAUDE.md rule 19). CDX fixtures are real, from a verified
+live query, trimmed.
 
 ## Step — the grading rule in `method/GRADING.md`
 
@@ -147,7 +327,8 @@ It serves a fake capture from the local `ThreadingHTTPServer` at a path shaped l
 containing that URL, and asserts the resulting manifest entry has the same key set as any
 other entry — no Wayback-specific fields, body byte-identical. If someone later adds a
 Wayback branch, this test still passes, so pair it with the check below that greps for the
-absence of such a branch.
+absence of such a branch. For that grep's sake, `fetch.py` must not name Wayback even in a
+comment or docstring — this constraint lives here, not in the spider file it constrains.
 
 **This does NOT mean the fetcher rewrites live URLs into capture URLs automatically.**
 Choosing to reach for an archived copy is a judgement about a source, made by an operator or
@@ -170,8 +351,12 @@ archived" into a crash.
 
 ```
 test -f fetcher/evidence_fetch/wayback.py
+test -f fetcher/evidence_fetch/spiders/fetch.py
 grep -qF 'id_/' fetcher/evidence_fetch/wayback.py
 grep -qF '3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ' fetcher/evidence_fetch/wayback.py
+grep -qF 'def content_digests' fetcher/evidence_fetch/wayback.py
+grep -qF 'test_capture_url_uses_id_modifier' fetcher/tests/test_wayback.py
+grep -qF 'test_content_digests_filters_non_200_and_empty_captures' fetcher/tests/test_wayback.py
 grep -qF 'test_distinct_digests_dedupes_globally_not_adjacently' fetcher/tests/test_wayback.py
 grep -qF 'test_capture_url_fetches_through_the_ordinary_spider_path' fetcher/tests/test_wayback.py
 ! grep -qiE 'wayback|archive\.org' fetcher/evidence_fetch/spiders/fetch.py
@@ -183,4 +368,6 @@ python3 -m unittest tests.test_scaffold -q
 ```
 
 `python3 -m unittest tests.test_scaffold -q` is included because this task edits `method/`,
-and CLAUDE.md rule 11 requires `method/` and `SKILL.md` to stay mutually consistent.
+and CLAUDE.md rule 11 requires `method/` and `SKILL.md` to stay mutually consistent. The
+`test -f` on `spiders/fetch.py` exists so the Wayback-absence grep can never pass vacuously
+against a missing file (plan-review #26).

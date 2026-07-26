@@ -41,6 +41,9 @@ class Disposition(enum.Enum):
     FATAL = "fatal"        # 404/410 and other permanent client errors
 
 def classify_status(status: int, attempt: int, max_attempts: int = 3) -> Disposition
+    """attempt is 0-BASED — the same convention as backoff_delay. The manifest's
+    1-based attempt_n is converted once at the call site: zero_based = attempt_n - 1,
+    passed to BOTH functions (task 6 pins this)."""
 ```
 
 ## Behaviour, pinned
@@ -222,8 +225,10 @@ def backoff_delay(attempt: int, base: float = 1.0, cap: float = 60.0,
 
 def classify_status(status: int, attempt: int,
                     max_attempts: int = 3) -> Disposition:
-    """Disposition for one attempt. BLOCKED is a claim about this attempt
-    sequence, never about the world — it authorises no absence finding."""
+    """Disposition for one attempt. `attempt` is 0-based, matching backoff_delay;
+    the manifest's 1-based attempt_n is converted by the caller. BLOCKED is a claim
+    about this attempt sequence, never about the world — it authorises no absence
+    finding."""
     if 200 <= status < 400:
         return Disposition.OK
     if status in RETRYABLE:
@@ -246,7 +251,8 @@ backoff", never to a crash mid-crawl.
 
 ```
 test -f fetcher/evidence_fetch/backoff.py
-grep -qF 'RETRYABLE = frozenset({403,' fetcher/evidence_fetch/backoff.py
+grep -qE '^RETRYABLE = frozenset' fetcher/evidence_fetch/backoff.py
+grep -qF 'test_429_and_503_are_retryable' fetcher/tests/test_backoff.py
 grep -qF 'test_403_is_retryable_before_exhaustion' fetcher/tests/test_backoff.py
 grep -qF 'test_403_becomes_blocked_only_after_exhaustion' fetcher/tests/test_backoff.py
 grep -qF 'test_past_date_clamps_to_zero' fetcher/tests/test_backoff.py
