@@ -53,7 +53,8 @@ uv run --project fetcher python -m evidence_fetch \
     --manifest <path to manifest.jsonl> \
     --contact <URL or mailto: for the User-Agent> \
     [--jobdir <dir>]        # default: <cache-root>/.jobdir
-    [--limit N]             # stop after N successful fetches; for smoke runs
+    [--limit N]             # stop after N 2xx entries RECORDED this run (see the
+                            # bullet below); for smoke runs
 ```
 
 **Runtime settings the CLI derives** — both land under the cache root so the single
@@ -70,9 +71,17 @@ JOBDIR        = <cache-root>/.jobdir              # unless --jobdir is given
   "not writable" error means creation or a write failed, never mere absence.
 - `--limit N` counts **2xx responses with a non-null `seed_signal` recorded this run** —
   robots.txt fetches are recorded but do not count toward N (they are overhead, not
-  yield; R5). Once reached, no new requests are scheduled. Responses already in flight
-  are still recorded (rule 15), so the manifest may exceed N by up to the cross-host
-  concurrency.
+  yield; R5). Once reached, **no new seed requests are scheduled. A retry already
+  decided by the callback or errback is not a new request and still runs to its
+  classification conclusion** (round-3 T17) — cutting a retry chain short would leave
+  `disposition: "retry"` as a URL's last word with no attempt behind it, the
+  escalation-by-abandonment rule 18 exists to prevent. The manifest may therefore
+  exceed N by the in-flight responses plus the outstanding retry budget of URLs already
+  started (at most `max_attempts` further attempts each). **A warm `HTTPCACHE` makes
+  `--limit` a no-op for already-cached URLs** (round-3 P1, measured): cache-served
+  responses write no entry and never advance the counter, so after a `.jobdir` delete
+  every cached seed is walked (at zero wire cost) and only *uncached* seeds are bounded
+  by N. Delete `<cache-root>/httpcache/` too if a smoke run must be bounded end-to-end.
 - An **empty seed table** (header + alignment row, zero data rows — guard-valid, and
   `read_seeds` returns `[]`) is a no-op: exit 0, zero requests, manifest untouched.
 - **Duplicate seed URLs: the first row wins** — it is enqueued and its `signal` becomes
@@ -84,6 +93,17 @@ an unidentified crawler falls under the most restrictive `*` robots group — an
 `USER_AGENT` in settings carries a literal `{contact}` placeholder that must never reach
 the wire.
 
+**Every completed crawl exits 0** (round-3 T18) — including a run whose URLs all ended
+`blocked` or `fatal`: the run did its job; `blocked` is a claim about an attempt
+sequence, never about the world (task 4), and a nonzero exit would make one dead host
+fail a multi-host crawl. Nonzero exits are reserved for the four startup failures
+(exit 2) and an unhandled crash. A subprocess test may therefore assert
+`returncode == 0` on any run that reached the reactor. **The pinned command's
+`--project fetcher` is RELATIVE and uv resolves it against the process cwd** (round-3
+T7, probed: from a foreign cwd it degrades to `Project directory 'fetcher' does not
+exist` + `No module named evidence_fetch`) — any test invoking it as a subprocess runs
+with **cwd = the repository root**, or passes an absolute `--project` path.
+
 ## Behaviour, pinned
 
 1. Read seeds. A `SeedFormatError` exits **2** before any network call. Never start a
@@ -94,9 +114,19 @@ the wire.
    the default `start()` reads `start_urls` alone, so a spider defining only
    `start_requests` crawls zero URLs with no warning (probed: 0 requests, clean
    `finish_reason: finished`). Seed requests carry
-   `meta={"attempt_n": 1, "seed_signal": <row's signal>}` — the recorder is a downloader
-   middleware and learns both values from meta, nowhere else — and `dont_filter=False`,
-   so Scrapy's fingerprint dedup and the persisted `JOBDIR` frontier give A9's resume.
+   `meta={"attempt_n": 1, "seed_signal": <row's signal>}` **and
+   `errback=self.on_error`** (T3 — transport failures reach the spider only through the
+   errback). The recorder reads **`request.meta.get("attempt_n", 1)`** and
+   **`request.meta.get("seed_signal")`**, and takes them from nowhere else. **The
+   default is load-bearing, not defensive** (round-3 T8): Scrapy builds the robots.txt
+   request itself with `meta={"dont_obey_robotstxt": True}` and nothing more (probed —
+   a recorder at 1000 sees exactly `dont_obey_robotstxt, download_latency,
+   download_slot, download_timeout` on it), so the robots entry's `attempt_n: 1` comes
+   from the default and its `seed_signal: null` from the absent key. **This does NOT
+   mean `meta["attempt_n"]`** — that raises `KeyError` on the first robots response of
+   every run, and `attempt_n` is not in task 5's nullable set. Seeds use
+   `dont_filter=False`, so Scrapy's fingerprint dedup and the persisted `JOBDIR`
+   frontier give A9's resume.
 4. **Caching and recording are the record middleware's job (task 5), never the spider's.**
    Every response — every status, every content type, redirect hops **and robots.txt
    fetches included**; `"cached"`-flagged responses excluded (the one exclusion) — is
@@ -127,7 +157,21 @@ the wire.
    `RetryMiddleware` cannot honour `Retry-After` (its source contains zero occurrences of
    the header), and with it on, the callback never sees a retryable response while its
    retries remain, making this item dead code. On `Disposition.RETRY`, reschedule after
-   `parse_retry_after(retry_after_header, now) or backoff_delay(zero_based)` seconds, where
+
+   ```python
+   ra = parse_retry_after(retry_after_header, now)
+   delay_s = ra if ra is not None else backoff_delay(zero_based)
+   ```
+
+   seconds — **`is not None`, never `or`** (round-3 T4): task 4 clamps `Retry-After: 0`,
+   a past HTTP-date, and `"-5"` to `0.0`, and `0.0 or x` evaluates to `x`, so the `or`
+   form silently replaces an honoured "retry now" with a random backoff; `None` is the
+   only "use our own backoff" signal. **The delay must actually defer the retry before
+   it is handed to the scheduler** (round-3 T5): re-yielding it immediately is wrong
+   even though the slot delay masks the difference — probed, with `Retry-After: 120`
+   and `DOWNLOAD_DELAY = 5.0` an immediate re-yield produced a 4.999s gap and identical
+   entries and counts, so only the gated timing test below can see this. The deferral
+   seam is the implementer's call (`contract`); the delay value is not a seam.
    `zero_based = attempt_n - 1` is computed **once** and passed to both `classify_status`
    and `backoff_delay`. **The retry request is pinned** (plan-review R3):
 
@@ -151,6 +195,23 @@ the wire.
    (the handler's hit counter reads 4); manifest lines `attempt_n` 1–4 with dispositions
    `retry, retry, retry, blocked`. **This does NOT mean 3 attempts** — `classify_status`
    blocks when `zero_based >= 3`, i.e. on the 4th.
+
+7a. **Transport failures retry through the errback** (T3). The recorder (task 5) has
+   already written the failure line by the time `on_error(failure)` runs — the
+   `process_exception` chain re-raises after recording, and the errback fires (probed
+   for all four transport classes). The errback's job is the retry decision only:
+   `fc = failure_class_for(type(failure.value).__name__, str(failure.value))`;
+   on `classify_failure(fc, zero_based) is Disposition.RETRY`, reschedule with the same
+   pinned `replace(dont_filter=True, meta={…, "attempt_n": n + 1})` construction after
+   `backoff_delay(zero_based)` seconds — there is no `Retry-After` without a response.
+   On `BLOCKED`, do nothing: the line is written, and `blocked` is a claim about this
+   attempt sequence, never about the world. Worked example — a dns-dead seed host,
+   default `max_attempts=3`: the host's robots fetch fails once (its own failure line),
+   then the page attempt cycle runs `attempt_n` 1–4 → manifest gains **five** failure
+   lines: 1 robots (`seed_signal: null`) + 4 page (`retry, retry, retry, blocked`), zero
+   wire responses, zero artifacts. **This does NOT mean robots is re-fetched per retry**
+   — Scrapy caches the failed parser (`None`) for the netloc, so retries proceed
+   directly (probed).
 
 **This does NOT mean the spider skips non-2xx bodies.** A 403 challenge page and a 503
 maintenance notice are cached and hashed like any other response (task 5). Recognising the
@@ -190,16 +251,23 @@ test_json_and_html_take_the_same_path          # key sets equal; see the A7 note
 test_cached_bytes_are_byte_identical           # sha256 of file == sha256 of served bytes
 test_rerun_refetches_nothing                   # A9; zero new lines, robots included
 test_interrupted_run_resumes_from_jobdir       # A9
-test_jobdir_delete_with_httpcache_writes_no_new_entries   # (#13): 0 server hits, 0 lines
+test_jobdir_delete_with_httpcache_writes_no_new_entries   # (#13): 0 server hits, 0
+                                               # lines — a 200-serving fixture BY
+                                               # DESIGN; a retryable-status fixture
+                                               # appends a fresh sequence instead
+                                               # (T10, see the runbook)
 test_malformed_seeds_exits_2_before_any_request # server records zero hits
 test_missing_contact_exits_2
 test_403_then_200_yields_two_entries_and_the_body_is_cached
     # THE composed R2+R3+R4 regression, and the one test that catches all three:
-    # asserts TWO wire hits via the handler's counter (a cache-served retry writes a
-    # second line but not a second hit), two entries for the target URL (dispositions
-    # retry, ok), and the 200 body cached. Red if the callback never sees the 403
-    # (R2), if the dupefilter eats the retry (R3), or if the retry is answered from
-    # the HTTP cache (R4).
+    # asserts TWO wire hits via the handler's counter (under a broken R4 config the
+    # retry is answered from the HTTP cache: one wire hit, and the "cached"-flagged
+    # response writes NO line per task 5, so the target URL shows ONE entry, not
+    # two — measured; round-3 T11 corrected this comment, which previously claimed
+    # a cached retry writes a second line), two entries for the target URL
+    # (dispositions retry, ok), and the 200 body cached. Red if the callback never
+    # sees the 403 (R2), if the dupefilter eats the retry (R3), or if the retry is
+    # answered from the HTTP cache (R4).
 test_503_reaches_the_recorder_and_is_cached    # A3: the recorder at 1000 writes the
                                                # entry and caches the 503 body. The
                                                # recorder sits UPSTREAM of the
@@ -212,14 +280,41 @@ test_redirect_records_full_chain_and_url_final # the 301 hop is ALSO its own ent
                                                # same attempt_n (#12)
 test_empty_seed_table_is_a_noop                # exit 0, zero requests (#23)
 test_duplicate_seed_first_row_wins             # first signal survives; WARNING logged (#25)
-test_httpcache_lands_under_the_cache_root      # R9: run the CLI as a subprocess with
-                                               # cwd != cache-root's parent; assert
+test_httpcache_lands_under_the_cache_root      # R9, corrected by T7: subprocess with
+                                               # cwd = the REPO ROOT (the relative
+                                               # `--project fetcher` fails from any
+                                               # other cwd — probed) and --cache-root
+                                               # in a TemporaryDirectory, so cwd is
+                                               # not the cache root's parent. Assert
                                                # <cache-root>/httpcache/ exists and
-                                               # <cwd>/.scrapy does not — the settings
-                                               # default resolves through data_path()
-                                               # into <cwd>/.scrapy and both cache
-                                               # tests sharing one cwd could not see
-                                               # the override being lost
+                                               # <repo-root>/.scrapy does not —
+                                               # data_path() is scrapy's ONLY producer
+                                               # of <cwd>/.scrapy and only
+                                               # HTTPCACHE_DIR flows through it, so a
+                                               # correct run can never create it.
+                                               # Delete a stale .scrapy in setUp: it
+                                               # survives an earlier broken run.
+test_retry_after_header_defers_the_retry       # T5: the F5 regression, and the only
+                                               # instrument that can see it. Serve
+                                               # 403 + `Retry-After: 3` then 200,
+                                               # DOWNLOAD_DELAY = 1.0; assert the two
+                                               # wire hits are >= 3s apart. The header
+                                               # must EXCEED the slot delay or the
+                                               # test proves nothing (the same
+                                               # discriminance rule Amendment 1 fixed
+                                               # in the crawl-delay timing test).
+test_transport_dead_seed_writes_failure_lines  # T3: seed a closed port; assert zero
+                                               # wire responses, and failure lines
+                                               # attempt_n 1-4 with dispositions
+                                               # retry x3, blocked, each with
+                                               # failure.class "connection-refused"
+                                               # (plus the host's own robots failure
+                                               # line, seed_signal null)
+test_robots_disallowed_seed_writes_blocked_line # T3: live server, robots Disallow on
+                                               # the seed path; assert one failure
+                                               # line, class "robots-disallowed",
+                                               # disposition "blocked", attempt_n 1,
+                                               # and exactly one attempt (no retry)
 ```
 
 **A7 is enforced by three instruments together**, because the review proved no single one
@@ -253,6 +348,8 @@ counts hits per path so "zero fetches" is directly assertable rather than inferr
 | Cache root not writable | exit 2 | `cache root is not writable` |
 | A single URL fails all retries | crawl continues; entries recorded | — |
 | Any non-2xx response | recorded and cached like any other; **never** dropped | — |
+| A no-response attempt (transport death, robots disallow) | failure line written by the recorder (task 5); transport classes retried via the errback; crawl continues | — |
+| Crawl completed — all outcomes, `blocked`/`fatal` included | exit **0** (T18) | — |
 | Cache root / manifest parent absent | created on demand; not an error | — |
 | Empty seed table | exit 0, zero requests, manifest untouched | — |
 | Duplicate seed URL | first row wins; later rows logged at WARNING | `duplicate seed` |
@@ -266,10 +363,18 @@ this code, and continuing would write unusable records — fail loudly instead.
 
 Cover: `uv sync --project fetcher`; the full command with every flag; that `cache/` is
 ignored by exactly one `.gitignore` line while `manifest.jsonl` is tracked; that
-`<cache-root>/httpcache/` and `<cache-root>/.jobdir/` are disposable — deleting them costs
-a refetch at most, and **never** duplicate manifest history, because a cache-served response
-writes no entry; and that adding a seed means editing `seeds.md` by hand — no code run,
-fetcher need not be running.
+`<cache-root>/httpcache/` and `<cache-root>/.jobdir/` are disposable — deleting them
+costs a refetch at most. **For a URL whose last status was 2xx or 3xx a jobdir delete
+appends nothing** (the stored response is served `"cached"` and writes no entry); **for
+a URL whose last status was retryable it appends a fresh attempt sequence** (round-3
+T10, measured: 4 wire hits and 4 new lines against a 403-forever host), because
+`HTTPCACHE_IGNORE_HTTP_CODES` deliberately keeps retryable statuses out of the cache so
+backoff reaches the wire. That is correct — a new sequence is new attempts, and rule 15
+records attempts — but it is not zero-cost: delete `.jobdir` only when you intend to
+re-attempt the failures. A retry interrupted mid-backoff by a forced stop or crash is
+lost with its URL left at `disposition: "retry"` (task 5, T14); the remedy is a fresh
+jobdir. And: adding a seed means editing `seeds.md` by hand — no code run, fetcher need
+not be running.
 
 ## Checks
 
@@ -290,12 +395,17 @@ grep -qF 'test_redirect_records_full_chain_and_url_final' fetcher/tests/test_spi
 grep -qF 'test_empty_seed_table_is_a_noop' fetcher/tests/test_spider.py
 grep -qF 'test_duplicate_seed_first_row_wins' fetcher/tests/test_spider.py
 grep -qF 'test_httpcache_lands_under_the_cache_root' fetcher/tests/test_spider.py
+grep -qF 'test_retry_after_header_defers_the_retry' fetcher/tests/test_spider.py
+grep -qF 'test_transport_dead_seed_writes_failure_lines' fetcher/tests/test_spider.py
+grep -qF 'test_robots_disallowed_seed_writes_blocked_line' fetcher/tests/test_spider.py
 grep -qF -- '--contact is required' fetcher/evidence_fetch/cli.py
 grep -qF 'HTTPCACHE_DIR' fetcher/evidence_fetch/cli.py
 grep -qF 'HTTPERROR_ALLOW_ALL' fetcher/evidence_fetch/spiders/fetch.py
 grep -qF 'async def start' fetcher/evidence_fetch/spiders/fetch.py
 ! grep -qF 'def start_requests' fetcher/evidence_fetch/spiders/fetch.py
 grep -qF 'dont_filter=True' fetcher/evidence_fetch/spiders/fetch.py
+grep -qF 'parse_retry_after' fetcher/evidence_fetch/spiders/fetch.py
+grep -qF 'errback' fetcher/evidence_fetch/spiders/fetch.py
 ! grep -qiE 'content.?type' fetcher/evidence_fetch/spiders/fetch.py
 grep -qxF 'cache/' fetcher/README.md
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
@@ -310,5 +420,8 @@ in `cli.py` gates the runtime override that keeps the HTTP cache under the cache
 instead of `<cwd>/.scrapy/` — and `test_httpcache_lands_under_the_cache_root` gates the
 *behaviour*, because the review showed the grep alone is satisfied by a comment (R9). The
 `async def start` / `start_requests` pair pins the 2.17 entry point: the classic method is
-dead code that fails silently. And `dont_filter=True` must appear in `fetch.py` because
-retries pass it (item 7); its absence means retries are being eaten by the dupefilter (R3).
+dead code that fails silently. `dont_filter=True` must appear in `fetch.py` because
+retries pass it (item 7); its absence means retries are being eaten by the dupefilter
+(R3). And `parse_retry_after` / `errback` are the T5/T3 tripwires: an implementation
+missing either has re-invented the RetryMiddleware defect (header never read) or made
+transport failures invisible to retry.

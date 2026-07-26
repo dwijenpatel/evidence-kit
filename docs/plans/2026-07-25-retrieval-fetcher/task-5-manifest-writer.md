@@ -33,6 +33,13 @@ From task 4:
 class Disposition(enum.Enum): OK / RETRY / BLOCKED / FATAL
 def classify_status(status: int, attempt: int, max_attempts: int = 3) -> Disposition
     # attempt is 0-BASED, same convention as backoff_delay
+
+FAILURE_CLASSES = ("dns-failure", "connection-refused", "timeout", "tls-error",
+                   "robots-disallowed", "other")
+def failure_class_for(exc_type_name: str, detail: str = "") -> str
+    # maps type(exc).__name__ + str(exc) to a failure class (T3)
+def classify_failure(failure_class: str, attempt: int, max_attempts: int = 3) -> Disposition
+    # disposition for a NO-RESPONSE attempt; attempt 0-BASED
 ```
 
 From task 3 — the robots provenance producer and the live slot delay:
@@ -74,8 +81,8 @@ REQUIRED_KEYS = frozenset({
     "http_status", "response_protocol", "raw_bytes_sha256", "raw_bytes_length",
     "cache_relpath", "content_type", "request_headers", "response_headers",
     "redirect_chain", "etag", "etag_is_weak", "last_modified", "disposition",
-    "fetch_policy", "useragent_sent", "prior_fetch_ref", "seed_signal",
-})   # exactly 22 — the schema sample below, key for key
+    "fetch_policy", "useragent_sent", "prior_fetch_ref", "seed_signal", "failure",
+})   # exactly 23 — the schema sample below plus `failure`, key for key
 ```
 
 ## The schema — pinned
@@ -110,18 +117,76 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
   },
   "useragent_sent": "evidence-fetch/0.1 (+mailto:…)",
   "prior_fetch_ref": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-  "seed_signal": "operator noticed it in a discussion"
+  "seed_signal": "operator noticed it in a discussion",
+  "failure": null
 }
 ```
+
+**A no-response attempt writes a *failure line*** (Amendment 4 / T3, operator-decided) —
+same 23 keys, with the **response unit** null as a block and `failure` carrying what is
+actually known:
+
+```json
+{
+  "schema": 1,
+  "url_requested": "https://example.com/pricing",
+  "url_final": "https://example.com/pricing",
+  "attempt_n": 1,
+  "fetched_at": "2026-07-25T19:04:41.010Z",
+  "http_status": null,
+  "response_protocol": null,
+  "raw_bytes_sha256": null,
+  "raw_bytes_length": null,
+  "cache_relpath": null,
+  "content_type": null,
+  "request_headers": {"User-Agent": "evidence-fetch/0.1 (+mailto:…)", "Accept": "*/*"},
+  "response_headers": null,
+  "redirect_chain": ["https://example.com/pricing"],
+  "etag": null,
+  "etag_is_weak": null,
+  "last_modified": null,
+  "disposition": "retry",
+  "fetch_policy": {"delay_used_s": 5.0, "robots_url": "https://example.com/robots.txt",
+                   "robots_sha256": null, "robots_fetched_at": null},
+  "useragent_sent": "evidence-fetch/0.1 (+mailto:…)",
+  "prior_fetch_ref": null,
+  "seed_signal": "operator noticed it in a discussion",
+  "failure": {"class": "timeout", "detail": "Getting https://example.com/pricing took longer than 30.0 seconds."}
+}
+```
+
+Why a failure line exists at all: the method's own discipline is that absence findings
+state their sample and date — this line **is** the citable warrant for any later "source
+unreachable as of `<date>`" claim, the PRD's founding timeout incident is literally a
+no-response attempt, and `failure.class: "robots-disallowed"` is the producer for PRD
+§6's second `blocked` ground, which otherwise has none. **No sentinel status and no
+empty-body artifact** — a synthesized `599` or a cached `b""` is fake fidelity, the same
+reason `response_status_line` was removed. One carve-out: a request that dies **before
+scheduling** (malformed seed URL) is a startup error, not a manifest line — nothing was
+attempted.
 
 **Field notes where a reader could go wrong:**
 
 - **Every key in `REQUIRED_KEYS` is present in every line. A field with no value is
   written as `null`, never omitted** — with `append_entry` rejecting missing keys, omission
-  is the difference between a written line and a crashed run. Nullable: `content_type`
-  (header absent), `response_protocol` (Scrapy exposes none), `etag`, `etag_is_weak`
-  (`null` exactly when `etag` is), `last_modified`, `prior_fetch_ref`, `seed_signal`, and
-  `fetch_policy.robots_sha256` / `robots_fetched_at`. Everything else is never `null`.
+  is the difference between a written line and a crashed run. The null rules are two-tier
+  (T3):
+  - **On every line**, nullable: `content_type` (header absent), `response_protocol`
+    (Scrapy exposes none), `etag`, `etag_is_weak` (`null` exactly when `etag` is),
+    `last_modified`, `prior_fetch_ref`, `seed_signal`, and
+    `fetch_policy.robots_sha256` / `robots_fetched_at`.
+  - **The response unit** — `http_status`, `response_protocol`, `raw_bytes_sha256`,
+    `raw_bytes_length`, `cache_relpath`, `content_type`, `response_headers`, `etag`,
+    `etag_is_weak`, `last_modified` — **is null as a block exactly when `failure` is
+    non-null**, and `failure` is null exactly when `http_status` is an integer. One XOR,
+    validated by `append_entry`: `(entry["http_status"] is None) == (entry["failure"] is
+    not None)`, and on a failure line every response-unit field must be null. Everything
+    outside the two lists above is never `null` on any line — `url_final` and
+    `redirect_chain` stay non-null on a failure line (`[url_requested]`, requested).
+- `failure` is `null` on a response line, else an object with **exactly**
+  `{"class": <one of task 4's FAILURE_CLASSES>, "detail": <str(exception), verbatim>}` —
+  validated by `append_entry` (class membership included). `disposition` on a failure
+  line comes from `classify_failure(class, zero_based)`, never `classify_status`.
 - The sample above is the **post-redirect entry of a one-hop redirect** (`/pricing` →
   301 → `/pricing/`): the chain runs requested → final, `url_final` equals its last
   element, and the 301 hop itself is a separate, earlier line (see the redirect rule
@@ -131,13 +196,23 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
   the instant the recorder observed the response (response side), not the request send time.
 - `attempt_n` is **1-based** and counts scheduling attempts of this URL within one
   frontier lineage: a freshly enqueued URL starts at 1, and the count increments **only**
-  when the spider reschedules after `Disposition.RETRY` — a redirect hop inherits it
-  unchanged (rule below), and it **survives a `JOBDIR` resume**, because the frontier
-  serialises `request.meta` (probed: disk queues persist via `Request.to_dict`, meta
-  included). A retry interrupted at `attempt_n: 2` resumes as 2, not 1 (#15). Both
-  `backoff_delay` and `classify_status` take a **0-based** attempt. The conversion is
-  computed **once** — `zero_based = entry["attempt_n"] - 1` — and passed to both; a second
-  `- 1` at either call site is the off-by-one this note exists to prevent.
+  when the spider reschedules after a `RETRY` disposition — a redirect hop inherits it
+  unchanged (rule below). It **survives a `JOBDIR` resume for any request that is in the
+  frontier**, because the frontier serialises `request.meta` (probed: disk queues persist
+  via `Request.to_dict`) — a retry already queued at `attempt_n: 2` resumes as 2, not 1
+  (#15). **This does NOT mean a retry still inside its backoff wait survives** (round-3
+  T14, probed): during the wait the pending request exists only in the callback's frame
+  — `scheduler_len 0`, JOBDIR holding `requests.seen` alone. One Ctrl-C is safe (the
+  graceful stop waits out the callback, then queues the retry; probed: resumes at 2). A
+  **second Ctrl-C or a crash during the wait loses it**, and because the seed's
+  fingerprint is already in `requests.seen`, the resumed run never refetches that URL —
+  its last manifest line reads `disposition: "retry"` permanently (probed: 0 fetches on
+  resume). Closing that hole would require enqueuing the retry before the wait and
+  realising the delay in the downloader, which this plan deliberately does not specify;
+  the runbook's remedy is a fresh jobdir. Both `backoff_delay` and `classify_status`
+  take a **0-based** attempt. The conversion is computed **once** — `zero_based =
+  entry["attempt_n"] - 1` — and passed to both; a second `- 1` at either call site is
+  the off-by-one this note exists to prevent.
 - `response_protocol` is `scrapy.http.Response.protocol` (e.g. `"HTTP/1.1"`), `null` when
   unavailable. **There is deliberately no `response_status_line`**: Scrapy drops the reason
   phrase at the download-handler boundary, so a status line could only be synthesised — and
@@ -149,11 +224,17 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
   `robots_sha256`, `robots_fetched_at` — validated by `append_entry` (the one nested
   validation; header objects stay free-form). `delay_used_s` is the **configured slot
   delay** read from `crawler.engine.downloader.slots[get_slot_key(request)].delay` at
-  record time (the key is `get_slot_key(request)`, never netloc — R1; the slot exists at
-  record time, because the response just traversed it and Scrapy's slot GC skips slots
-  with active requests). With `RANDOMIZE_DOWNLOAD_DELAY = False` the configured and
-  actual delays coincide. The three robots fields come from `crawler.robots_info[netloc]`
-  (task 3); never from a second robots.txt GET.
+  record time (the key is `get_slot_key(request)`, never netloc — R1; it also cannot
+  drift, because `_enqueue_request` writes `meta["download_slot"]` before the download).
+  The slot still exists at record time, but **not** because the request is active in it
+  — `_enqueue_request` removes the request from `slot.active` in its `finally`, before
+  the `process_response` chain runs (round-3 T16, probed: `request in slot.active` is
+  `False` on every response). It survives because `_slot_gc` reaps only slots that are
+  both inactive **and** idle past `lastseen + delay` on a 60s loop, and `lastseen` was
+  set by this very request. **This does NOT mean a `slots[…]` read may assume an active
+  request.** With `RANDOMIZE_DOWNLOAD_DELAY = False` the configured and actual delays
+  coincide. The three robots fields come from `crawler.robots_info[netloc]` (task 3);
+  never from a second robots.txt GET.
 - **When `robots_info` has no entry for the request's netloc at record time**, the three
   robots fields fall back to `"robots_url": "<scheme>://<netloc>/robots.txt"` with
   `robots_sha256` and `robots_fetched_at` `null` — synthesized with **netloc, port
@@ -178,8 +259,17 @@ One JSON object per line. **The fetcher writes exactly these keys and no others.
   that row's signal like any other seed. Carrying it here means the provenance of a fetch
   survives even if the seed row is later edited — and PRD §11 makes that provenance a
   weak growth signal that cannot be reconstructed later.
-- `response_headers` and `request_headers` preserve original casing and are objects, not
-  lists. A repeated header joins with `", "` (RFC 9110 §5.3 field-order semantics).
+- `response_headers` and `request_headers` are objects, not lists. **Header names are
+  normalized by Scrapy to `Title-Case`** — `Headers.normkey` is `key.title()`
+  (`scrapy/http/headers.py`, probed), applied where the download handler builds the
+  message, *below* every middleware — so no recorder priority can see wire casing: a
+  server's `ETag` is recorded as `Etag`, `x-archive-orig-content-length` as
+  `X-Archive-Orig-Content-Length`. **Values are byte-preserved.** **This does NOT mean
+  casing is preserved** (round-3 T15 — the earlier "preserve original casing" was
+  false): a WARC export reconstructs header-name casing exactly as it reconstructs the
+  reason phrase, and must label both. Field names are case-insensitive (RFC 9110 §5.1),
+  so no downstream comparison may key on recorded casing. A repeated header joins with
+  `", "`.
 - `schema` is `1`. Conditional-GET fields (`validators_sent`, `conditional_hit`) existed
   in an earlier draft and were **removed** (plan-review F9): no v1 task builds a conditional
   request, `DummyPolicy` forecloses it at the framework level, and a required field for an
@@ -196,6 +286,17 @@ simhash64 · source_class · change_class
 
 Sub-project 2 appends its own lines keyed by `raw_bytes_sha256`; it does not rewrite
 fetcher lines. **The manifest is append-only. Nothing ever edits a written line.**
+Seam obligation on the other side, stated here because this task claims to pin the seam
+(T13): **a sub-project-2 line that carries `url_requested` must also carry `schema`** —
+any value ≠ 1 is then a deliberate, detected version bump; a line carrying neither key
+is always safely skipped.
+
+**These seven names, and `validators_sent` / `conditional_hit`, must not appear anywhere
+under `fetcher/evidence_fetch/` — not in a comment, not in a docstring** (round-3 T19:
+the two absence greps below are unanchored `-F`, so a helpful docstring listing the
+excluded fields turns a check red against correct code). Where a module docstring needs
+to say fields are deliberately missing, write "the sub-project-2 fields listed in task
+5" and name none of them.
 
 ## Naming deviation from the PRD, and why
 
@@ -257,17 +358,34 @@ anything's prior reference.
 - **A redirect hop is its own manifest ENTRY, never its own attempt (#12).** At priority
   1000 the recorder sees the 301 before `RedirectMiddleware` (600) converts it, so the hop
   is recorded — its body cached, its `redirect_chain` ending at the hop, `disposition:
-  "ok"` (3xx is `OK`). The final entry's `redirect_chain` spans requested → final via
-  `response.meta["redirect_urls"]`. A one-hop redirect therefore produces **two** manifest
+  "ok"` (3xx is `OK`). **One expression produces every entry's chain** (round-3
+  clarification): `redirect_chain = request.meta.get("redirect_urls", []) + [request.url]`
+  and `url_final = request.url` — probed on a two-hop chain: `["/a"]`, `["/a","/b"]`,
+  `["/a","/b","/c"]`; `RedirectMiddleware` appends the *prior* URL to the *next*
+  request's meta, so the hop's own entry never contains its Location target. **This does
+  NOT mean read the `Location` header** — that mechanism appears nowhere in this plan. A
+  one-hop redirect therefore produces **two** manifest
   lines — **both carrying the same `attempt_n`**: the counter travels in `request.meta`,
   and `RedirectMiddleware` builds the follow-up with `request.replace(...)`, which
   inherits meta (probed). Only a `Disposition.RETRY` reschedule increments it. **This does
   NOT mean the hop entry is optional** — it means a redirect never eats retry budget: if
   hops incremented the counter, `zero_based = attempt_n - 1` would walk a much-redirected
   URL toward `blocked` without a single retryable status ever arriving.
+- **The recorder implements `process_exception` as well as `process_response`** (T3).
+  The manager runs the `process_exception` chain highest-priority-first on *any*
+  exception out of `_process_request` — including one raised by a lower-priority
+  middleware's `process_request`, so the recorder at 1000 sees the robots middleware's
+  `IgnoreRequest` even though its own `process_request` never ran (source:
+  `download_async` wraps the whole `_process_request` in try/except;
+  `methods["process_exception"]` is `appendleft`ed). The failure line is built there:
+  `failure_class_for(type(exc).__name__, str(exc))` → class; `classify_failure(class,
+  zero_based)` → disposition; response unit null; return `None` so the chain re-raises
+  and the spider's errback still fires (probed: errbacks fired for all four transport
+  classes). `attempt_n` and `seed_signal` come from `request.meta.get(...)` with the
+  task-6 defaults.
 - It must record even when a later middleware will raise. Read the installed Scrapy for the
   exact registration mechanics — that seam is why the task is `contract`; the priority and
-  the four rules above are not seams, they are pinned.
+  the rules above are not seams, they are pinned.
 
 ## Error model
 
@@ -279,8 +397,9 @@ breaks resume the moment sub-project 2 appends its own lines (plan-review #12):
 | Entry missing a required key | `append_entry` raises `ManifestSchemaError` | `missing required key` |
 | Entry has an unknown key | `append_entry` raises `ManifestSchemaError` | `unknown key` |
 | `fetch_policy` not exactly its four keys | `append_entry` raises `ManifestSchemaError` | `fetch_policy` |
-| Valid JSON line **without** `url_requested` | `load_prior_index` **skips it silently** — it is another producer's line (sub-project 2), not corruption | — |
-| Line with `url_requested` and `schema != 1` | `load_prior_index` raises `ManifestSchemaError` | `unknown schema version` |
+| Valid JSON line lacking `url_requested` **or lacking `schema`** | `load_prior_index` **skips it silently** — a line is a **fetcher line iff it carries BOTH keys** (round-3 T13); anything else is another producer's, not corruption. **This does NOT mean `entry.get("schema") != 1` → raise** — that turns resume into a crash the first time sub-project 2 denormalises `url_requested` onto its own line, the exact breakage #12 exists to prevent | — |
+| Fetcher line (both keys) with `schema != 1` | `load_prior_index` raises `ManifestSchemaError` | `unknown schema version` |
+| `failure` non-null with an integer `http_status`, or null with `http_status` null; a failure line with any non-null response-unit field; `failure.class` outside `FAILURE_CLASSES`; `failure` not exactly `{class, detail}` | `append_entry` raises `ManifestSchemaError` | `failure` |
 | Malformed JSON line, not last | `load_prior_index` raises `ManifestSchemaError` | `corrupt manifest line` |
 | Malformed JSON final line | Skipped silently | — |
 | Manifest file absent | `load_prior_index` returns `{}` | — |
@@ -308,6 +427,16 @@ test_cached_flag_writes_no_entry                 # a cache hit is not an attempt
 test_robots_fallback_synthesizes_url_with_netloc # robots_info missing at record time ->
                                                  # {scheme}://{netloc}/robots.txt + two
                                                  # nulls; port KEPT (R6)
+test_failure_line_roundtrips                     # T3: the failure sample above passes
+                                                 # append_entry and reloads intact
+test_failure_xor_is_validated                    # T3: failure non-null + integer status
+                                                 # raises; both-null raises; a failure
+                                                 # line with a non-null response-unit
+                                                 # field raises; class outside
+                                                 # FAILURE_CLASSES raises — all with
+                                                 # substring `failure`
+test_failure_lines_never_enter_prior_index       # T3: a failure line is not 2xx;
+                                                 # load_prior_index ignores it
 ```
 
 ## Checks
@@ -337,6 +466,11 @@ grep -qF 'test_unknown_schema_version_on_a_fetcher_line_raises' fetcher/tests/te
 grep -qF 'test_gzip_response_caches_wire_bytes' fetcher/tests/test_manifest.py
 grep -qF 'test_cached_flag_writes_no_entry' fetcher/tests/test_manifest.py
 grep -qF 'test_robots_fallback_synthesizes_url_with_netloc' fetcher/tests/test_manifest.py
+grep -qF 'test_failure_line_roundtrips' fetcher/tests/test_manifest.py
+grep -qF 'test_failure_xor_is_validated' fetcher/tests/test_manifest.py
+grep -qF 'test_failure_lines_never_enter_prior_index' fetcher/tests/test_manifest.py
+grep -qF '"failure"' fetcher/evidence_fetch/manifest.py
+grep -qF 'process_exception' fetcher/evidence_fetch/middlewares/record.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```
 

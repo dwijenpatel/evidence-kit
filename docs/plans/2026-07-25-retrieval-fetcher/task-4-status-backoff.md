@@ -44,6 +44,19 @@ def classify_status(status: int, attempt: int, max_attempts: int = 3) -> Disposi
     """attempt is 0-BASED — the same convention as backoff_delay. The manifest's
     1-based attempt_n is converted once at the call site: zero_based = attempt_n - 1,
     passed to BOTH functions (task 6 pins this)."""
+
+FAILURE_CLASSES = ("dns-failure", "connection-refused", "timeout", "tls-error",
+                   "robots-disallowed", "other")
+
+def failure_class_for(exc_type_name: str, detail: str = "") -> str
+    """Failure class for a NO-RESPONSE attempt, from the exception TYPE NAME plus its
+    message. String-keyed so this module stays framework-free; the recorder passes
+    type(exc).__name__ and str(exc)."""
+
+def classify_failure(failure_class: str, attempt: int, max_attempts: int = 3) -> Disposition
+    """Disposition for a no-response attempt. attempt is 0-BASED, same as
+    classify_status. robots-disallowed -> BLOCKED immediately; every other class
+    (including "other") retries then blocks."""
 ```
 
 ## Behaviour, pinned
@@ -64,6 +77,21 @@ def classify_status(status: int, attempt: int, max_attempts: int = 3) -> Disposi
 statement about a fetch attempt sequence, never about the world. Per CLAUDE.md rule 15 each
 attempt is already its own manifest entry; a `BLOCKED` disposition adds no new record and
 authorises no absence claim. The distinction is the entire point of the task.
+
+**No-response attempts (round-3 T3 — operator-decided).** An attempt can die with no
+response at all; those attempts get manifest *failure lines* (task 5) and their
+disposition comes from `classify_failure`. The taxonomy, with the scrapy 2.17.0
+exception names **probed live** (scrapy wraps twisted's transport errors in
+`scrapy.exceptions.*`):
+
+| failure class | probed producer(s) | evidential meaning | disposition |
+|---|---|---|---|
+| `dns-failure` | `CannotResolveHostError` | domain likely gone — the strongest durable absence signal | retry → blocked |
+| `connection-refused` | `DownloadConnectionRefusedError` | host up, service down or moved | retry → blocked |
+| `timeout` | `DownloadTimeoutError` | overload or rate limiting — the founding CDX incident | retry → blocked |
+| `tls-error` | `DownloadFailedError` with `SSL` in the message | misconfig or interception, distinct from "down" | retry → blocked |
+| `robots-disallowed` | `IgnoreRequest` with `robots` in the message | a **policy** fact — the producer for PRD §6's second `blocked` ground | **blocked immediately** |
+| `other` | anything else | unclassified — not evidence of permanence | retry → blocked |
 
 `parse_retry_after` worked examples, with `now = 2026-07-25T12:00:00Z`:
 
@@ -99,7 +127,8 @@ import unittest
 from datetime import datetime, timezone
 
 from evidence_fetch.backoff import (RETRYABLE, Disposition, backoff_delay,
-                                    classify_status, parse_retry_after)
+                                    classify_failure, classify_status,
+                                    failure_class_for, parse_retry_after)
 
 NOW = datetime(2026, 7, 25, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -157,6 +186,43 @@ class ClassifyTests(unittest.TestCase):
 
     def test_success_is_ok(self):
         self.assertIs(classify_status(200, attempt=0), Disposition.OK)
+
+
+class FailureClassTests(unittest.TestCase):
+    def test_probed_scrapy_names_map(self):
+        self.assertEqual(failure_class_for("CannotResolveHostError"), "dns-failure")
+        self.assertEqual(failure_class_for("DownloadConnectionRefusedError"),
+                         "connection-refused")
+        self.assertEqual(failure_class_for("DownloadTimeoutError"), "timeout")
+
+    def test_tls_needs_ssl_in_the_detail(self):
+        self.assertEqual(
+            failure_class_for("DownloadFailedError",
+                              "[<twisted.python.failure.Failure OpenSSL.SSL.Error"),
+            "tls-error")
+        self.assertEqual(failure_class_for("DownloadFailedError", "who knows"),
+                         "other")
+
+    def test_robots_disallow_is_ignore_request_plus_robots(self):
+        self.assertEqual(
+            failure_class_for("IgnoreRequest", "Forbidden by robots.txt"),
+            "robots-disallowed")
+        self.assertEqual(failure_class_for("IgnoreRequest", "other reason"), "other")
+
+    def test_unknown_exception_is_other(self):
+        self.assertEqual(failure_class_for("SomethingNovel"), "other")
+
+
+class ClassifyFailureTests(unittest.TestCase):
+    def test_robots_disallowed_blocks_immediately(self):
+        self.assertIs(classify_failure("robots-disallowed", attempt=0),
+                      Disposition.BLOCKED)
+
+    def test_transport_failures_retry_then_block(self):
+        for fc in ("dns-failure", "connection-refused", "timeout", "tls-error",
+                   "other"):
+            self.assertIs(classify_failure(fc, attempt=0), Disposition.RETRY, fc)
+            self.assertIs(classify_failure(fc, attempt=3), Disposition.BLOCKED, fc)
 
 
 class CacheRetrySeamTests(unittest.TestCase):
@@ -246,14 +312,61 @@ def classify_status(status: int, attempt: int,
     if status in RETRYABLE:
         return Disposition.RETRY if attempt < max_attempts else Disposition.BLOCKED
     return Disposition.FATAL
+
+
+FAILURE_CLASSES = ("dns-failure", "connection-refused", "timeout", "tls-error",
+                   "robots-disallowed", "other")
+
+_FAILURE_BY_EXC = {
+    # scrapy 2.17.0 wraps twisted's transport errors in scrapy.exceptions.* — these
+    # names were probed live (dns-dead host, closed port, DOWNLOAD_TIMEOUT against a
+    # slow handler). The bare twisted names are kept as aliases in case a future
+    # scrapy stops wrapping.
+    "CannotResolveHostError": "dns-failure",
+    "DNSLookupError": "dns-failure",
+    "DownloadConnectionRefusedError": "connection-refused",
+    "ConnectionRefusedError": "connection-refused",
+    "DownloadTimeoutError": "timeout",
+    "TimeoutError": "timeout",
+    "TCPTimedOutError": "timeout",
+}
+
+
+def failure_class_for(exc_type_name: str, detail: str = "") -> str:
+    """Failure class for an exception type name plus its message.
+
+    String-keyed on purpose: importing twisted or scrapy types here would couple the
+    one pure-decision module to the framework (rule: this file stays import-light and
+    testable bare). The recorder passes type(exc).__name__ and str(exc).
+    """
+    if exc_type_name == "IgnoreRequest" and "robots" in detail.lower():
+        return "robots-disallowed"
+    if exc_type_name == "DownloadFailedError" and "ssl" in detail.lower():
+        return "tls-error"      # probed: the OpenSSL text rides in the message
+    return _FAILURE_BY_EXC.get(exc_type_name, "other")
+
+
+def classify_failure(failure_class: str, attempt: int,
+                     max_attempts: int = 3) -> Disposition:
+    """Disposition for a no-response attempt (`attempt` 0-based, as classify_status).
+
+    robots-disallowed is BLOCKED immediately — a policy answer, not transience;
+    re-asking is a fresh robots fetch on a later run, not a retry. Everything else,
+    including "other", retries then blocks: an unclassified death is not evidence of
+    permanence.
+    """
+    if failure_class == "robots-disallowed":
+        return Disposition.BLOCKED
+    return Disposition.RETRY if attempt < max_attempts else Disposition.BLOCKED
 ```
 
 Note `float(int(value))` rather than `float(value)`: RFC 9110's delay-seconds form is an
 integer, and accepting `"1.5e3"` would silently diverge from what the header can mean.
 
-Re-run → 15 pass. (`test_httpcache_ignores_exactly_the_retryable_set` imports
+Re-run → 21 pass. (`test_httpcache_ignores_exactly_the_retryable_set` imports
 `evidence_fetch.settings` — task 2's module, already built; it needs no Scrapy machinery,
-only the constant.)
+only the constant. The failure-class tests are pure string/dispatch tests; the probed
+exception names they pin come from plan.md Amendment 4's ledger.)
 
 ## Error model
 
@@ -271,5 +384,9 @@ grep -qF 'test_403_is_retryable_before_exhaustion' fetcher/tests/test_backoff.py
 grep -qF 'test_403_becomes_blocked_only_after_exhaustion' fetcher/tests/test_backoff.py
 grep -qF 'test_past_date_clamps_to_zero' fetcher/tests/test_backoff.py
 grep -qF 'test_httpcache_ignores_exactly_the_retryable_set' fetcher/tests/test_backoff.py
+grep -qF 'def classify_failure' fetcher/evidence_fetch/backoff.py
+grep -qF 'def failure_class_for' fetcher/evidence_fetch/backoff.py
+grep -qF 'test_robots_disallowed_blocks_immediately' fetcher/tests/test_backoff.py
+grep -qF 'test_transport_failures_retry_then_block' fetcher/tests/test_backoff.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```

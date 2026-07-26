@@ -76,6 +76,8 @@ Copied verbatim from the PRD and `CLAUDE.md`; every task implicitly includes the
 | Manifest field named `cache_relpath`, not the PRD's `mirror_path` | Follow the PRD name exactly | `mirrors/` is an existing directory in the consuming corpus, now frozen by operator decision. A field called `mirror_path` would point readers at the store this one replaces. Recorded because deviating from PRD wording needs a stated reason. | Low. |
 | *(Amendment 3)* Retryable statuses stay out of Scrapy's HTTP cache via `HTTPCACHE_IGNORE_HTTP_CODES` = the `RETRYABLE` set | `meta={"dont_cache": True}` on retry requests only | The cache must never answer a retry with a stored error (R4 — probed: 4 callbacks, one wire hit). The settings route covers every requester once, keeps successful retries cacheable, and cannot be forgotten by a future request constructor; the meta route must be remembered at each one. `test_httpcache_ignores_exactly_the_retryable_set` pins the list to `backoff.RETRYABLE`. | Low. |
 | *(Amendment 3)* A robots.txt fetch is a recorded attempt — rule 15 applies to it | A recorder rule excluding robots fetches | Rule 15 reads that way ("one manifest entry per attempt, written before interpretation"); A5 gains a real artifact for the robots bytes; and the exclusion would be a second special case stated nowhere the PRD licenses. Costs: every per-host line count gains one, and `--limit` counts only seed-originated 2xx (R5). | Low — one skip rule if reversed, before any manifest exists. |
+| *(Amendment 4, operator-decided)* **A no-response attempt writes a failure line**: the response unit null as a block, a `failure: {class, detail}` object, disposition from `classify_failure`; six pinned classes; recorder gains `process_exception` | Zero lines (a dead host indistinguishable from never-seeded); or a sentinel status | The method requires absence claims to cite a sample and date — the failure line is that warrant; the PRD's founding incident (a timed-out CDX query) is literally a no-response attempt; and `robots-disallowed` is the otherwise-missing producer for PRD §6's second `blocked` ground. A sentinel status is fake fidelity, rejected for the same reason `response_status_line` was. Schema is 23 keys, amended pre-ship, so no migration. | Medium — the XOR and null-unit rules ride the one-way-door schema; dropping the feature later means dead nullable rules, not data loss. |
+| *(Amendment 4)* Robots access **fails open** on an unreadable/unreachable robots.txt — a stated deviation from PRD §6's "fail closed" | Fail closed (block every URL on that host until robots is readable) | The superclass already fails open (probed: empty/garbage/binary robots all allow); failing closed converts a one-window transport error into a recorded inability to fetch — the false-absence shape again. The delay never falls below `DEFAULT_DELAY`, parsed disallow rules are always honoured, and `robots_info` nulls record "we asked" (T21). | Low — one override in the subclass if reversed. |
 
 ## Tasks
 
@@ -107,27 +109,27 @@ Every in-scope criterion maps to a task, and every task maps back — no orphans
 |---|---|---|
 | A1 `Crawl-delay` ≥ declared | 2, 3 | `test_declared_delay_is_applied_to_the_slot` · `test_delay_survives_ten_responses` (F1) · `test_slot_created_after_robots_still_gets_the_delay` (F3) · `test_slot_key_is_hostname_not_netloc` (R1) · `test_settings_that_defeat_a1_stay_off` · the capped/absent/never-lowered trio |
 | A2 byte-exact cache | 2, 5, 6 | `write_artifact` content-addressing; `test_cached_bytes_are_byte_identical`; `test_gzip_response_caches_wire_bytes` — "raw bytes" = wire octets (F4) |
-| A3 one entry per attempt | 5, 6 | `test_503_then_200_produces_two_entries_and_url_not_failed`; `test_503_reaches_the_recorder_and_is_cached` (the recorder half — it sits upstream of the spider drop, R2); `test_cached_flag_writes_no_entry` — a cache hit is not an attempt (#13) |
-| A4 first 403 backs off | 4, 6 | `test_403_is_retryable_before_exhaustion` / `..._becomes_blocked_only_after_exhaustion` + `test_403_then_200_yields_two_entries_and_the_body_is_cached` — the composed e2e proving the retry reaches the callback (R2), survives the dupefilter (R3), and hits the wire, not the cache (R4) |
-| A5 fidelity set present | 3, 5 | `REQUIRED_KEYS` (22, enumerated) + `test_missing_required_key_raises` + `test_robots_info_records_url_digest_and_time` — `fetch_policy` now has a producer (F10) — + the robots.txt attempt recorded as its own artifact, with the netloc-synthesized fallback for the two robots_info-less moments (R5, R6) |
+| A3 one entry per attempt | 5, 6 | `test_503_then_200_produces_two_entries_and_url_not_failed`; `test_503_reaches_the_recorder_and_is_cached` (the recorder half — it sits upstream of the spider drop, R2); `test_cached_flag_writes_no_entry` — a cache hit is not an attempt (#13) — + **failure lines for no-response attempts** (T3): `test_transport_dead_seed_writes_failure_lines`, `test_failure_line_roundtrips` |
+| A4 first 403 backs off | 4, 6 | `test_403_is_retryable_before_exhaustion` / `..._becomes_blocked_only_after_exhaustion` + `test_403_then_200_yields_two_entries_and_the_body_is_cached` — the composed e2e proving the retry reaches the callback (R2), survives the dupefilter (R3), and hits the wire, not the cache (R4) — + `test_retry_after_header_defers_the_retry` (T5: the only instrument that can see the header being honoured) + `classify_failure` retrying transport deaths (T3) |
+| A5 fidelity set present | 3, 5 | `REQUIRED_KEYS` (23, enumerated) + `test_missing_required_key_raises` + `test_robots_info_records_url_digest_and_time` — `fetch_policy` now has a producer (F10) — + the robots.txt attempt recorded as its own artifact, with the netloc-synthesized fallback for the two robots_info-less moments (R5, R6). Header names are Scrapy-normalized Title-Case, values byte-preserved; a WARC export reconstructs casing and says so (T15) |
 | A7 one code path for JSON and HTML | 6 | key-set equality (`test_json_and_html_take_the_same_path`) + byte identity (`test_cached_bytes_are_byte_identical` — forbids a second *recording* path; the scheduling half rests on item 5's prose plus review, R8) + the `content.?type` absence grep (F8) |
 | A8 Wayback via the ordinary path | 7 | `test_capture_url_fetches_through_the_ordinary_spider_path` + the no-Wayback-branch grep |
 | A9 unattended, interruptible, resumable | 2, 5, 6 | `JOBDIR` + `DummyPolicy`; `test_rerun_refetches_nothing`, `test_interrupted_run_resumes_from_jobdir`, `test_jobdir_delete_with_httpcache_writes_no_new_entries`, `test_foreign_lines_are_skipped_by_the_reader` (#12 — resume survives sub-project 2's lines) |
 | A10 hand-editable seeds with provenance | 1, 2 | Guard rejects a blank `signal`; `read_seeds` round-trip |
 | **A6, A7b** | — | **Deferred to sub-project 2**, stated in Scope |
 
-Self-review, re-run after amendment 3 — every item below is an execution, not a count
+Self-review, re-run after amendment 4 — every item below is an execution, not a count
 read off the prose: `tasks.json` is **generated from the spec `## Checks` fences** (7
-tasks, 121 checks), so spec/manifest drift is impossible by construction and re-verified
+tasks, 137 checks), so spec/manifest drift is impossible by construction and re-verified
 at zero; every check shell-validated (`bash -n`), zero malformed; all 10 negative checks
 swept programmatically for a positive gate on the same path in the same task — 10 of 10
-paired (#13 closed the one exception, task 2's root-isolation grep). **Every test named
-in spec prose is gated by a name grep** (#11); fence-shipped tests are enforced by
-transcription plus the suite run instead. Changed greps were demonstrated red against the
-defect they name and green against the shipped line (R7's comment-broken anchor, the
-ignore-codes drift check, the `start_requests` tripwire). Task 7's shipped code was
-extracted from the spec and executed: 12/12 unit tests pass; its 13th test is e2e and
-build-time by design. Amendment 3's framework claims each carry a probe row below.
+paired. **Every test named in spec prose is gated by a name grep** (#11); fence-shipped
+tests are enforced by transcription plus the suite run instead. The amended task-2 and
+task-4 fences were extracted and executed: **24/24 pass**. Task 7's shipped code was
+executed at authoring: 12/12 unit tests; its 13th test is e2e and build-time by design.
+Every framework claim in Amendments 3–4 carries a probe row (the two ledgers below) or a
+citation into the round-3 report's independently-verified transcripts; the one ledger
+row round 3 falsified is corrected in place and says so.
 
 ## Amendment 1 — plan-review blockers F1–F3, 2026-07-25
 
@@ -259,7 +261,7 @@ at this date; a Scrapy bump invalidates the ledger, not just the code.
 | Claim | Probe | Result |
 |---|---|---|
 | Slot key = `meta["download_slot"]` or `urlparse_cached(request).hostname or ""` — port stripped | source: `core/downloader/__init__.py:166-175`; live: recorder logged keys | live on `127.0.0.1:62283`: `slot_key "127.0.0.1"`, `slots_has_netloc false`, `slots_has_slot_key true` — all three responses |
-| The slot exists at record time (GC cannot reap it mid-response) | source: `_slot_gc` reaps only `not slot.active` idle slots (`:272`) | confirmed; response traverses its slot's active set |
+| The slot exists at record time (GC cannot reap it mid-response) | source: `_slot_gc` reaps only `not slot.active` idle slots (`:272`) | *Result corrected by round-3 T16:* slot present, but `request in slot.active` is **False** at record time (`_enqueue_request`'s `finally` removes it before `process_response` runs; probed) — survival is via `lastseen + delay` and the 60s GC loop, **not** the active set. This row's original Result ("response traverses its slot's active set") was false as measured |
 | Spider attribute `handle_httpstatus_all` is read by nothing; meta / `HTTPERROR_ALLOW_ALL` / attr `handle_httpstatus_list` are the three inputs | source: `spidermiddlewares/httperror.py:57-74`; live crawl, broken config | broken: 1 wire hit, **0 callbacks**; fixed (`custom_settings HTTPERROR_ALLOW_ALL`): callback fired on the 403 |
 | A `dont_filter=False` re-request of a seen URL is dropped by the dupefilter; `replace(dont_filter=True)` passes | live crawl (fixed config reaches attempt 2) | fixed: retry left the scheduler and hit the wire |
 | `DummyPolicy.should_cache_response` honours `HTTPCACHE_IGNORE_HTTP_CODES`; without it a stored 403 answers every retry | source: `extensions/httpcache.py:35-51`; live, both configs | r4only: `[403 wire, 403 cached, 403 cached, 403 cached]`, **one** wire hit · fixed: `[403 wire, 200 wire]`, **two** wire hits |
@@ -276,6 +278,62 @@ the two new anchored greps demonstrated red against their named defect and green
 the shipped line, and the composed R2+R3+R4 config demonstrated live: broken → 1 wire
 hit / 0 callbacks; fixed → 2 wire hits, `retry` then `ok`.
 
+## Amendment 4 — round 3's 22 findings plus the T3 decision, 2026-07-26
+
+Operator-directed ("let's tackle all of amendment 4 now"). The round-3 lean re-review —
+the substrate-truth finder's first firing — confirmed 21 findings (T1–T21) plus one
+plausible (P1); report archived at
+[`plan-review-report-round3.md`](plan-review-report-round3.md). All are applied, and T3
+was resolved by an **operator decision**: a no-response attempt writes a *failure line*
+(see the decision log). Two of round 3's blockers had survived every previous round
+inside "load-bearing parts exact" code — the class the divergence instruments cannot
+see and only execution can.
+
+| # | Was | Now |
+|---|---|---|
+| **T1** | task 3's exact sketch line called `parser.crawl_delay(…)` — the seam yields Scrapy's `ProtegoRobotParser` wrapper (surface: `allowed`, `rp`), so the line raises `AttributeError`, swallowed by the task's own error model: A1 dead at runtime with one WARNING | Consumes pins the wrapper; the call is `parser.rp.crawl_delay(…)` (probed: 7.0) with the swallowed-AttributeError negative example inline; `rp.crawl_delay` gated by a grep |
+| **T2** | all ten unit tests prescribed against `get_crawler()`, whose `.engine` is `None` — the pinned assertion raises before touching a slot | harness replaced: build `Downloader(crawler)` and inject it (probed: 5.0→7.0 through the pinned expression); the two traffic tests run a real crawl and assert from inside a callback |
+| **T3** | a transport-dead or robots-disallowed attempt produced **zero** manifest lines — unpinned, schema inexpressible, `BLOCKED`-by-robots had no producer | **operator-decided**: failure lines. Schema is **23 keys** (`failure` added); response unit null as a block, XOR validated; taxonomy + `failure_class_for` + `classify_failure` shipped in task 4 (probed exception names); recorder gains `process_exception`; spider gains the errback branch; worked example: dns-dead seed → 5 failure lines |
+| **T4** | item 7's `parse_retry_after(…) or backoff_delay(…)` — `0.0 or x` evaluates `x`, so `Retry-After: 0`, past dates, and `"-5"` were silently replaced by random backoff (3 of task 4's 7 worked rows dead at the only call site) | `ra if ra is not None else backoff_delay(zero_based)`, pinned with the falsy-zero negative example |
+| **T5** | no mechanism and no instrument for the retry delay — an implementation never reading `Retry-After` was green on all 121 checks (probed: gap tracks the slot delay, never the header) | deferral obligation pinned; `test_retry_after_header_defers_the_retry` gated (header 3s > slot 1s, the discriminance rule); `parse_retry_after` tripwire grep on `fetch.py` |
+| **T6** | Amendment 3's sketch memoized `_applied` on the slot key — two rule-19 servers share `"127.0.0.1"`, so the second host's `Crawl-delay: 15` was parsed and silently never applied (probed: 7.0) | memo keyed by **netloc**, lookup by `get_slot_key` — pinned as deliberately different keys; `test_second_port_on_one_hostname_still_applies_its_delay` gated |
+| **T7** | the pinned subprocess command's `--project fetcher` is cwd-relative — red from any foreign cwd (probed: `No module named evidence_fetch`), and R9's test description said "cwd elsewhere" | subprocess invocations pinned to cwd = repo root; R9's test asserts `<repo-root>/.scrapy` absent (`data_path` is scrapy's only producer of it — probed); task 7's Consumes carries the same warning |
+| **T8** | "learns both values from meta, nowhere else" ∧ robots entry `attempt_n: 1` ∧ never-null — jointly unsatisfiable (the robots request's meta is one key, probed) | recorder reads `meta.get("attempt_n", 1)` / `meta.get("seed_signal")` — the default pinned as load-bearing, with the KeyError negative example |
+| **T9** | Amendment 3's 6a synthesized `f"{scheme}://…"` inside `_robots_error`, which receives no scheme (probed: `NameError`); the paired test hardcoded `http://` | scheme stashed per netloc in `robot_parser` (the last frame holding the request); test now seeds an **https** URL to a closed port so only the stash can produce `https://` |
+| **T10** | runbook: deleting `.jobdir` "never duplicates manifest history" — falsified by Amendment 3's own R4 fix (probed: 4 fresh wire hits, 4 new lines on a 403-forever host) | claim scoped: 2xx/3xx-final URLs append nothing; retryable-final URLs get a fresh attempt sequence by design; jobdir-delete test fixture pinned 200-serving |
+| T11 | the 403-then-200 annotation claimed a cache-served retry "writes a second line" — task 5's skip rule means it writes none (measured: ONE line) | annotation corrected; the wire-hit assertion stays, with the true rationale |
+| T12 | `test_slot_key_is_hostname_not_netloc` as described asserted only downloader facts — probed green over the exact defect it names | the discriminating `delay == 7.0` assertion pinned into the test, with the cannot-fail warning |
+| T13 | a line with `url_requested` but no `schema` was unclassified — one reading crashes resume on sub-project 2's lines | fetcher line ⇔ **both** keys present; anything else skipped; the seam obligation on sub-project 2 stated |
+| T14 | "resumes as 2" claimed unconditionally — a forced stop or crash during the backoff wait loses the retry and the URL is never refetched (probed) | scoped truthfully: frontier-queued retries survive; one Ctrl-C is safe; a second, or a crash, strands the URL at `retry` — remedy documented (fresh jobdir) |
+| T15 | "headers preserve original casing" — impossible; `Headers.normkey` is `key.title()`, below every middleware (probed: `ETag` → `Etag`) | Title-Case normalization pinned; values byte-preserved; WARC casing labeled a reconstruction |
+| T16 | task 5 and the Amendment-3 probe ledger justified slot survival via the active set — the request leaves `slot.active` before `process_response` runs (probed) | justification corrected in both places; survival is `lastseen + delay` + the 60s GC loop; the ledger row now records its own correction |
+| T17 | `--limit` vs a pending retry unpinned — one reading leaves `retry` as a URL's last word with no attempt behind it | retries run to their classification conclusion; the overshoot bound restated |
+| T18 | exit code of a completed crawl pinned nowhere; subprocess tests had to guess | **every completed crawl exits 0**, blocked/fatal included; nonzero = startup failures (2) or a crash |
+| T19 | three unanchored absence greps forbid tokens the plan's own house style writes into comments; the even-in-comments rule was stated only for `content.?type` and Wayback | the rule extended explicitly at both sites (task 5's field block, task 3's checks note); `def start_requests` stands as refuted — a definition form, not a name |
+| T20 | task 2 shipped `REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"` (zero occurrences in scrapy 2.17.0 — removed, unread, unwarned) and an inert `FEED_EXPORT_ENCODING`, under "every value here is a constraint" | both deleted; a comment records why each is deliberately absent |
+| T21 | error-model row 1 ("never treat an unreadable robots.txt as 'no rules'") was false of what will be built and an unstated PRD §6 deviation | row rewritten: delay falls back, access **fails open** — a stated deviation, with the rationale; decision-log row added |
+| P1 | `--limit` gloss "stop after N successful fetches" vs a warm cache where nothing is recorded (measured: counter never advances) | gloss corrected; warm-cache behaviour documented with the end-to-end-bounding remedy |
+
+### Probe ledger — Amendment 4 additions (scrapy 2.17.0 · Python 3.14.6 · 2026-07-26)
+
+Round 3's transcripts are incorporated by reference — every T-row above marked "probed"
+cites [`plan-review-report-round3.md`](plan-review-report-round3.md), whose finders and
+verifiers measured each claim independently. New probes run for this amendment's own
+substrate claims:
+
+| Claim | Probe | Result |
+|---|---|---|
+| Transport exceptions arrive wrapped in `scrapy.exceptions.*` with these names | live crawl, recorder `process_exception` at 1000; dns-dead host, closed port, `DOWNLOAD_TIMEOUT=1` vs a 3s handler, https against a plain-HTTP port | `CannotResolveHostError` · `DownloadConnectionRefusedError` · `DownloadTimeoutError` · `DownloadFailedError` with the OpenSSL text in the message |
+| A dns-dead host fails **both** its robots fetch and its page fetch | same | two `CannotResolveHostError` events, `/robots.txt` first |
+| The spider errback fires after the `process_exception` chain re-raises | same, `errback=` on every seed | errbacks fired for all four transport classes |
+| The `process_exception` chain runs highest-priority-first on *any* `_process_request` exception — including one raised by a lower-priority middleware | source: `download_async` try/except wraps `_process_request`; `methods["process_exception"]` is `appendleft`ed | confirmed — the recorder at 1000 sees the robots `IgnoreRequest` (round-3 probe) even though its own `process_request` never ran |
+| Scrapy's robots parsers are keyed by **netloc without scheme** — an https and an http origin on one host:port share a parser | source: `_parsers[netloc]`; observed live when a TLS-dead https robots fetch set the shared parser to `None` | confirmed — first-scheme-wins stash mirrors the substrate |
+| The amended task-2 and task-4 fences execute | extracted into a scratch package, `unittest discover` | **24/24 pass** (21 backoff including the six new failure tests, 3 settings) |
+
+Validation after applying: **137 checks** regenerated from fences (drift zero by
+construction), `bash -n` clean on all 137, negative-check pairing 10/10 by script, and
+the amended fences executed (24/24).
+
 ## Ratification
 
 - **ratified-by:** *pending*
@@ -284,10 +342,12 @@ hit / 0 callbacks; fixed → 2 wire hits, `retry` then `ok`.
 - **amended (round 2):** F4–F26, 2026-07-25, pre-ratification, operator-directed
 - **amended (round 3):** R1–R10 + #11–#15 + N1, 2026-07-26, pre-ratification,
   operator-directed ("fix the whole set")
-- **review disposition:** all 26 findings from round 1 and all 15 from the lean re-review
-  ([`plan-review-report-round2.md`](plan-review-report-round2.md)) are applied, plus N1
-  found by this round's own probes; nothing outstanding. Amendment 3 changed mechanism
-  prose, so per the amended skill a **lean re-review is due before ratification** —
-  operator-directed, not yet run.
+- **amended (round 4):** T1–T21 + P1 + the T3 operator decision (failure lines),
+  2026-07-26, pre-ratification, operator-directed
+- **review disposition:** rounds 1–3 fully applied — 26 + 15 + 22 findings
+  ([round 1](plan-review-report-round1.md) · [round 2](plan-review-report-round2.md) ·
+  [round 3](plan-review-report-round3.md)); nothing outstanding. Amendment 4 changed
+  mechanism prose and the schema, so a **round-4 lean re-review is due before
+  ratification** — operator-directed, not yet run.
 
 Any edit after ratification voids it.

@@ -3,8 +3,8 @@
 **Target:** `docs/plans/2026-07-25-retrieval-fetcher/` after Amendment 3 · `tasks.json` (121 checks)
 **Tier:** lean — 2 translators · 2 merged finders · **substrate-truth finder** (first firing) · 3 grouped
 verifiers. Rounds 1–2 archived at
-[`plan-review-report-round1.md`](docs/plans/2026-07-25-retrieval-fetcher/plan-review-report-round1.md) ·
-[`plan-review-report-round2.md`](docs/plans/2026-07-25-retrieval-fetcher/plan-review-report-round2.md).
+[`plan-review-report-round1.md`](plan-review-report-round1.md) ·
+[`plan-review-report-round2.md`](plan-review-report-round2.md).
 **Mode:** report-only. Nothing in the plan was modified.
 **Probe substrate:** scrapy 2.17.0 · Python 3.14.6 · uv 0.11.30 · BSD grep 2.6.0 — every claim below is
 true of these versions on this date; a dependency bump invalidates the substrate section wholesale.

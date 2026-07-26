@@ -33,9 +33,14 @@ uv run --project fetcher python -m evidence_fetch \
 
 `--contact` is required (exit 2 without it); its value is formatted into the `USER_AGENT`
 (`evidence-fetch/0.1 (+<contact>)`), replacing a literal `{contact}` placeholder that
-must never reach the wire. From task 5: every manifest entry carries the 22
-`REQUIRED_KEYS`; the ones this task's test asserts on are `useragent_sent` (the exact
-header value sent), `raw_bytes_sha256`, and `seed_signal`.
+must never reach the wire. **`--project fetcher` is relative and uv resolves it against
+the process cwd** (round-3 T7): the e2e subprocess runs with cwd = the repository root,
+or passes an absolute `--project` path — from any other cwd the command fails with
+`No module named evidence_fetch` against a correct implementation. A completed crawl
+exits 0 (task 6, T18), so the subprocess may assert `returncode == 0`. From task 5:
+every manifest entry carries the 23 `REQUIRED_KEYS`; the ones this task's test asserts
+on are `useragent_sent` (the exact header value sent), `raw_bytes_sha256`, and
+`seed_signal`.
 
 ## Provides
 

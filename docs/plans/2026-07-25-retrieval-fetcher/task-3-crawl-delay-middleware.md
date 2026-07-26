@@ -64,11 +64,23 @@ Every slot lookup in this task and in task 5 goes through `get_slot_key(request)
 **every** CLAUDE.md rule-19 test server — the delay is silently never applied. **This does
 NOT mean the two dicts can share a key function.**
 
-Protego's parser, which Scrapy already constructs:
+**What the robots seam actually hands you (round-3 T1 — this was wrong for three review
+rounds):** Scrapy constructs and passes around its wrapper, never bare Protego. The
+wrapper's public surface is `allowed()` plus the `rp` attribute; **`crawl_delay` exists
+only on `.rp`**:
 
 ```python
-protego.Protego.crawl_delay(user_agent: str) -> float | None
+scrapy.robotstxt.ProtegoRobotParser          # what robot_parser() yields (2.17.0,
+    .allowed(url, user_agent) -> bool        #   robotstxt.py:109-123; the default
+    .rp: protego.Protego                     #   ROBOTSTXT_PARSER, which task 2 keeps)
+        .crawl_delay(user_agent: str) -> float | None
 ```
+
+`parser.crawl_delay(ua)` raises `AttributeError: 'ProtegoRobotParser' object has no
+attribute 'crawl_delay'` (probed live) — and this task's own error model then swallows
+it into `DEFAULT_DELAY` with one WARNING, which is A1 failing silently at runtime. The
+five gated delay tests catch it at build (5.0 ≠ 7.0); the correct call is
+`parser.rp.crawl_delay(ua)` (probed: 7.0).
 
 ## Provides
 
@@ -113,13 +125,33 @@ Registered at the same priority the stock middleware occupies, replacing it.
    unusable robots response, record the URL with `None` for digest and timestamp; the
    entry's presence still says "we asked." **A robots fetch that dies in transport
    (connection refused, DNS failure, timeout) produces no response at all**, so neither
-   rule above fires — hook the superclass's error path (`_robots_error` in 2.17.0) and
-   record `{"robots_url": f"{scheme}://{netloc}/robots.txt", "robots_sha256": None,
-   "robots_fetched_at": None}` there, synthesizing the URL exactly the way the superclass
-   builds it — **netloc, port kept** (probed: `robotsurl =
-   f"{url.scheme}://{url.netloc}/robots.txt"`). Without this entry, every page recorded on
-   that host falls to task 5's fallback and the manifest loses "we asked." (Plan-review
-   R6.)
+   rule above fires — hook the superclass's error path and record the same shape with
+   `None` for digest and timestamp. **`_robots_error(self, exc, netloc)` receives no
+   scheme** (round-3 T9 — probed: its locals are `exc, netloc, self`, and an f-string
+   naming `scheme` there raises `NameError`). The scheme's last holder is
+   `robot_parser(request)`; stash it per netloc before deferring to the superclass:
+
+   ```python
+   async def robot_parser(self, request):
+       url = urlparse_cached(request)
+       # First scheme wins, matching Scrapy's own one-parser-per-netloc keying —
+       # its _parsers dict is scheme-less, so an https and an http origin on one
+       # host:port already share a parser (probed; a TLS-dead https robots fetch
+       # sets that shared parser to None).
+       self._scheme_by_netloc.setdefault(url.netloc, url.scheme)
+       return await super().robot_parser(request)
+
+   def _robots_error(self, exc, netloc):
+       scheme = self._scheme_by_netloc.get(netloc, "http")
+       self.crawler.robots_info[netloc] = {
+           "robots_url": f"{scheme}://{netloc}/robots.txt",   # netloc: PORT KEPT
+           "robots_sha256": None, "robots_fetched_at": None}
+       return super()._robots_error(exc, netloc)
+   ```
+
+   **This does NOT mean hardcode `http://`** — that names a different origin on every
+   https host. Without this entry, every page recorded on that host falls to task 5's
+   fallback and the manifest loses "we asked." (Plan-review R6, corrected by T9.)
 6. **The delay persists for the life of the crawl.** Nothing else may write `slot.delay`;
    task 2 disables AutoThrottle for exactly this reason. **This does NOT mean the delay is
    re-applied per response** — it is set once, and the guarantee comes from no other
@@ -219,23 +251,58 @@ class CrawlDelayTests(unittest.TestCase):
         # TEST: with `_applied.add` before the slot lookup it stays at 5.0.
 
     def test_slot_key_is_hostname_not_netloc(self): ...
-        # against the 127.0.0.1:<port> server: get_slot_key(request) == "127.0.0.1",
-        # the slots dict has that key, and it does NOT have "127.0.0.1:<port>".
-        # THIS IS THE R1 REGRESSION TEST: a slots.get(netloc) lookup returns None
-        # on every rule-19 test server, so the delay is never applied — and it
-        # also pins the key shape against a future Scrapy changing it.
+        # against the 127.0.0.1:<port> server, after robots resolves:
+        #   key = downloader.get_slot_key(request)
+        #   assertEqual(key, "127.0.0.1")
+        #   assertIn(key, downloader.slots)
+        #   assertNotIn(f"127.0.0.1:{port}", downloader.slots)
+        #   assertEqual(downloader.slots[key].delay, 7.0)   # <- the discriminating one
+        # THIS IS THE R1 REGRESSION TEST — and only the delay assertion can fail on
+        # R1 (round-3 T12): the first three are facts about the DOWNLOADER, probed
+        # green against a middleware whose own lookup is slots.get(netloc) with the
+        # slot left at 5.0. Dropping the delay line leaves a regression test that
+        # cannot fail.
+
+    def test_second_port_on_one_hostname_still_applies_its_delay(self): ...
+        # two servers, 127.0.0.1:P1 declaring Crawl-delay: 7 and 127.0.0.1:P2
+        # declaring 15 — one shared slot key. Drive robots for both; assert the
+        # shared slot ends at 15.0. THIS IS THE T6 REGRESSION TEST: memoized on
+        # the slot key instead of netloc it reads 7.0, the 15 silently discarded.
 
     def test_robots_transport_failure_records_url_with_nulls(self): ...
-        # point the middleware at a closed port (bind a socket, note the port,
-        # close it); after the robots fetch errors, robots_info[netloc] ==
-        # {"robots_url": f"http://{netloc}/robots.txt", "robots_sha256": None,
-        #  "robots_fetched_at": None}  (R6 — the no-response case)
+        # bind a socket, note the port, close it; seed an HTTPS url on that port
+        # (https to a closed port fails in transport before any TLS — no certs
+        # needed). After the robots fetch errors, robots_info[netloc] ==
+        # {"robots_url": f"https://{netloc}/robots.txt", "robots_sha256": None,
+        #  "robots_fetched_at": None}  (R6/T9 — https-schemed on purpose: an
+        # implementation that hardcodes "http://" fails here; the stashed scheme
+        # is the only thing that can produce "https://")
 ```
 
-Implement each with the real middleware wired to a `Crawler` built by
-`scrapy.utils.test.get_crawler`, then assert on
-`crawler.engine.downloader.slots[crawler.engine.downloader.get_slot_key(request)].delay`
-— the key comes from `get_slot_key`, never from the URL's netloc (R1).
+**The harness (round-3 T2 — the previously prescribed one cannot work):**
+`scrapy.utils.test.get_crawler()` returns a crawler whose `.engine` is `None` — it is
+assigned only inside `crawl()` — so `crawler.engine.downloader` raises
+`AttributeError` before any assertion runs (probed; every test above died on it as
+previously specified). For the unit tests, build the downloader yourself and inject it:
+
+```python
+install_reactor("twisted.internet.asyncioreactor.AsyncioSelectorReactor")
+crawler = get_crawler(Spider, {"DOWNLOAD_DELAY": 5.0, "CRAWL_DELAY_CEILING": 60.0,
+                               "ROBOTSTXT_OBEY": True, "AUTOTHROTTLE_ENABLED": False})
+crawler.spider = crawler.spidercls.from_crawler(crawler, name="t")
+downloader = Downloader(crawler)                            # needs crawler.spider
+crawler.engine = SimpleNamespace(downloader=downloader)     # the one injection
+downloader._get_slot(request)                               # mint the slot
+mw = CrawlDelayRobotsMiddleware.from_crawler(crawler)
+# ... drive robots, then assert on
+# downloader.slots[downloader.get_slot_key(request)].delay   (probed: 5.0 -> 7.0)
+```
+
+`test_delay_survives_ten_responses` and the wall-clock test need real traffic instead:
+run a crawl (`CrawlerProcess`) against the local server and read
+`self.crawler.engine.downloader.slots[key].delay` from inside a spider callback, where
+`crawler.engine` is real (probed). The key always comes from `get_slot_key`, never from
+the URL's netloc (R1).
 
 **One end-to-end timing test** — `test_wall_clock_gap_honours_crawl_delay`, marked as the
 slow one: run it with `DOWNLOAD_DELAY = 1.0` against a host declaring `Crawl-delay: 3`,
@@ -263,28 +330,42 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
 
     def _apply_delay(self, request, parser):
         downloader = self.crawler.engine.downloader
-        key = downloader.get_slot_key(request)   # hostname, port stripped — NEVER the
-                                                 # URL's netloc (plan-review R1)
-        if key in self._applied:
+        netloc = urlparse_cached(request).netloc  # the MEMO key: host:port (T6)
+        if netloc in self._applied:
             return
-        # Look the slot up FIRST. Marking a key applied before we have a slot
+        key = downloader.get_slot_key(request)   # the slot LOOKUP key: hostname, port
+                                                 # stripped — NEVER the netloc (R1)
+        # Look the slot up FIRST. Marking a netloc applied before we have a slot
         # strands it forever: the guard above returns on every later call and the
         # declared delay is never applied. (Plan-review F3.)
         slot = downloader.slots.get(key)
         if slot is None:
             return                            # NOT marked; retried on the next request
         try:
-            declared = parser.crawl_delay(self._robotstxt_useragent
-                                          or self.crawler.settings["USER_AGENT"])
+            # .rp, not the wrapper: Scrapy hands ProtegoRobotParser around, and only
+            # its .rp (the Protego instance) has crawl_delay. `parser.crawl_delay(...)`
+            # raises AttributeError, which the except below would swallow into
+            # DEFAULT_DELAY forever — A1 dead with one WARNING as the trace (round-3
+            # T1, probed live: slot stayed 5.0 against a declared 7).
+            declared = parser.rp.crawl_delay(self._robotstxt_useragent
+                                             or self.crawler.settings["USER_AGENT"])
         except Exception:
             logger.warning("crawl_delay lookup failed for %s; using DEFAULT_DELAY",
-                           key)
+                           netloc)
             declared = None
-        self._applied.add(key)                # a slot existed: this host is settled
+        self._applied.add(netloc)             # a slot existed: this origin is settled
         if declared is None:
             return                            # keep DOWNLOAD_DELAY; do NOT zero it
         slot.delay = max(slot.delay, min(float(declared), self.MAX_DELAY))
 ```
+
+**The memo is keyed by netloc; the slot lookup by `get_slot_key`. They must differ**
+(round-3 T6): two rule-19 servers `127.0.0.1:P1` (`Crawl-delay: 7`) and `127.0.0.1:P2`
+(`Crawl-delay: 15`) share the slot key `"127.0.0.1"`. Memoized on the slot key, the
+second server's robots is parsed and its 15 **silently never read** — probed live:
+final delay 7.0; memoized on netloc, both apply and the shared slot ends at the max,
+15.0, per rule 4. **This does NOT mean the slot lookup may use netloc** — that is R1,
+the opposite defect.
 
 Where the robots.txt *response* is observable (the seam differs by version — in 2.17 it
 is the callback the superclass attaches to its own robots request), add:
@@ -332,7 +413,7 @@ fetched twice per host, and the stock one may short-circuit first.
 
 | Failure | Behaviour |
 |---|---|
-| robots.txt unreachable or malformed | Fall back to `DEFAULT_DELAY`; **never** treat an unreadable robots.txt as "no rules" |
+| robots.txt unreachable or malformed | Fall back to `DEFAULT_DELAY` for the **delay**; never zero it. **Access is unchanged: the superclass allows the request** (parser `None`, or an empty parse — probed: empty, HTML-garbage, and binary robots bodies all allow everything with `crawl_delay None`). This is a **stated deviation from PRD §6** ("fail closed … never cache 'unreadable' as 'no robots.txt'"): the fetcher fails *open on access* and records "we asked" via the `robots_info` nulls instead of blocking, because a one-fetch-window transport error must not convert into a recorded inability to fetch — the false-absence shape again. The disallow rules that *did* parse are always honoured. (Round-3 T21) |
 | `crawl_delay()` raises | Catch, log at `WARNING` with substring `crawl_delay`, fall back to `DEFAULT_DELAY` |
 | Slot does not exist yet | Return; the next request for that host creates it and the delay is applied then |
 
@@ -354,11 +435,13 @@ grep -qF 'test_declared_delay_is_applied_to_the_slot' fetcher/tests/test_crawl_d
 grep -qF 'test_delay_survives_ten_responses' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_slot_created_after_robots_still_gets_the_delay' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_slot_key_is_hostname_not_netloc' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_second_port_on_one_hostname_still_applies_its_delay' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_robots_transport_failure_records_url_with_nulls' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_disallowed_path_is_still_blocked' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_wall_clock_gap_honours_crawl_delay' fetcher/tests/test_crawl_delay.py
 grep -qF 'CRAWL_DELAY_CEILING' fetcher/evidence_fetch/middlewares/crawl_delay.py
 grep -qF 'get_slot_key' fetcher/evidence_fetch/middlewares/crawl_delay.py
+grep -qF 'rp.crawl_delay' fetcher/evidence_fetch/middlewares/crawl_delay.py
 grep -qF 'robots_info' fetcher/evidence_fetch/middlewares/crawl_delay.py
 grep -qF 'test_robots_info_records_url_digest_and_time' fetcher/tests/test_crawl_delay.py
 ! grep -qF 'AUTOTHROTTLE_MAX_DELAY' fetcher/evidence_fetch/middlewares/crawl_delay.py
@@ -367,6 +450,11 @@ uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher
 
 Every test named in this spec's prose is gated by a name grep above (#11) — a listed test
 that is never written must fail a check, not fade into the suite silently.
+`grep -qF 'rp.crawl_delay'` is the T1 tripwire: the wrapper has no `crawl_delay`, so the
+call must go through `.rp`. And `crawl_delay.py` must not contain the string
+`AUTOTHROTTLE_MAX_DELAY` **even in a comment** — that check is unanchored `-F` (round-3
+T19); the rejected-name rationale lives in `settings.py` and plan.md Amendment 1, not
+here.
 
 ## Regression value
 

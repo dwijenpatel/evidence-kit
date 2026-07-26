@@ -443,9 +443,14 @@ HTTPCACHE_DIR = "httpcache"
 # remain, so the spider's own retry logic becomes dead code. (Plan-review F5.)
 RETRY_ENABLED = False
 
-REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
-FEED_EXPORT_ENCODING = "utf-8"
+# Deliberately absent — both are `scrapy startproject` template leftovers, and neither
+# is a PRD or CLAUDE.md constraint (the docstring above says every value here is one):
+#   REQUEST_FINGERPRINTER_IMPLEMENTATION — removed from scrapy; 2.17.0 contains ZERO
+#     occurrences of the name, reads it nowhere, warns never (probed). Only
+#     REQUEST_FINGERPRINTER_CLASS exists, and its default is correct.
+#   FEED_EXPORT_ENCODING — a real setting, but consumed only by feed exports, and
+#     CLAUDE.md rule 14 forbids this component a third write path.
 ```
 
 `USER_AGENT` carries a `{contact}` placeholder that the spider (task 6) formats from a
