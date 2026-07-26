@@ -1,0 +1,37 @@
+[
+  {
+    "id": "parameters-template",
+    "spec": "docs/plans/2026-07-25-parameters-doc-type/task-1-parameters-template.md",
+    "tier": "code-complete",
+    "checks": [
+      "test -f templates/corpus/external/_parameters.md.tmpl",
+      "grep -qF '| subject | parameter | value | unit | regime | as_of | warrant | decay | source |' templates/corpus/external/_parameters.md.tmpl",
+      "grep -qF '`Parameters` (a cost/performance surface' method/CONVENTIONS.md",
+      "grep -qF 'price-surface' method/GRADING.md",
+      "grep -qF 'perf-envelope' method/GRADING.md",
+      "grep -qF 'media-generation' method/GRADING.md",
+      "grep -qF 'spec-standard' method/GRADING.md",
+      "grep -qF 'adoption-curve' method/GRADING.md",
+      "grep -qF 'carry exactly one pipe table' method/CONVENTIONS.md",
+      "grep -qF '_parameters.md.tmpl' method/PASS-PROTOCOL.md",
+      "grep -qF '_parameters.md.tmpl' SKILL.md",
+      "grep -qF 'on every holdings doc and every' method/CONVENTIONS.md",
+      "! grep -n 'lake:' templates/corpus/external/_parameters.md.tmpl",
+      "! grep -rEn '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' method/ templates/ SKILL.md scaffold.py",
+      "python3 -m unittest tests.test_scaffold -q"
+    ]
+  },
+  {
+    "id": "parameters-guard",
+    "spec": "docs/plans/2026-07-25-parameters-doc-type/task-2-parameters-guard.md",
+    "tier": "code-complete",
+    "checks": [
+      "python3 -m unittest tests.test_scaffold -q",
+      "grep -qF 'PARAM_COLUMNS' templates/tests/test_reference.py",
+      "grep -qF 'test_parameters_tables_are_complete' templates/tests/test_reference.py",
+      "grep -qF 'test_guard_rejects_parameters_row_missing_as_of' tests/test_scaffold.py && grep -qF 'test_guard_rejects_parameters_row_missing_source' tests/test_scaffold.py",
+      "! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' templates/ tests/",
+      "python3 -c \"import ast; ast.parse(open('templates/tests/test_reference.py').read())\""
+    ]
+  }
+]

@@ -1,37 +1,112 @@
 [
   {
-    "id": "parameters-template",
-    "spec": "docs/plans/2026-07-25-parameters-doc-type/task-1-parameters-template.md",
+    "id": "seeds-doc-type",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-1-seeds-doc-type.md",
     "tier": "code-complete",
     "checks": [
-      "test -f templates/corpus/external/_parameters.md.tmpl",
-      "grep -qF '| subject | parameter | value | unit | regime | as_of | warrant | decay | source |' templates/corpus/external/_parameters.md.tmpl",
-      "grep -qF '`Parameters` (a cost/performance surface' method/CONVENTIONS.md",
-      "grep -qF 'price-surface' method/GRADING.md",
-      "grep -qF 'perf-envelope' method/GRADING.md",
-      "grep -qF 'media-generation' method/GRADING.md",
-      "grep -qF 'spec-standard' method/GRADING.md",
-      "grep -qF 'adoption-curve' method/GRADING.md",
+      "test -f templates/corpus/_seeds.md.tmpl",
+      "grep -qF '| url | added | signal | question |' templates/corpus/_seeds.md.tmpl",
+      "grep -qF '`Seeds` (a fetch queue' method/CONVENTIONS.md",
       "grep -qF 'carry exactly one pipe table' method/CONVENTIONS.md",
-      "grep -qF '_parameters.md.tmpl' method/PASS-PROTOCOL.md",
-      "grep -qF '_parameters.md.tmpl' SKILL.md",
-      "grep -qF 'on every holdings doc and every' method/CONVENTIONS.md",
-      "! grep -n 'lake:' templates/corpus/external/_parameters.md.tmpl",
-      "! grep -rEn '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' method/ templates/ SKILL.md scaffold.py",
+      "grep -qF 'SEED_COLUMNS' templates/tests/test_reference.py",
+      "grep -qF 'test_seeds_tables_are_complete' templates/tests/test_reference.py",
+      "grep -qF 'test_guard_rejects_seed_row_missing_signal' tests/test_scaffold.py",
+      "grep -qF 'test_guard_rejects_seed_row_with_non_iso_added' tests/test_scaffold.py",
+      "! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' method/ templates/ tests/",
+      "python3 -c \"import ast; ast.parse(open('templates/tests/test_reference.py').read())\"",
       "python3 -m unittest tests.test_scaffold -q"
     ]
   },
   {
-    "id": "parameters-guard",
-    "spec": "docs/plans/2026-07-25-parameters-doc-type/task-2-parameters-guard.md",
+    "id": "fetcher-skeleton",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-2-fetcher-skeleton.md",
     "tier": "code-complete",
     "checks": [
-      "python3 -m unittest tests.test_scaffold -q",
-      "grep -qF 'PARAM_COLUMNS' templates/tests/test_reference.py",
-      "grep -qF 'test_parameters_tables_are_complete' templates/tests/test_reference.py",
-      "grep -qF 'test_guard_rejects_parameters_row_missing_as_of' tests/test_scaffold.py && grep -qF 'test_guard_rejects_parameters_row_missing_source' tests/test_scaffold.py",
-      "! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' templates/ tests/",
-      "python3 -c \"import ast; ast.parse(open('templates/tests/test_reference.py').read())\""
+      "test -f fetcher/pyproject.toml",
+      "test -f fetcher/README.md",
+      "grep -qF 'scrapy>=2.17' fetcher/pyproject.toml",
+      "grep -qF 'CONCURRENT_REQUESTS_PER_DOMAIN = 1' fetcher/evidence_fetch/settings.py",
+      "grep -qF 'AUTOTHROTTLE_MAX_DELAY = 60.0' fetcher/evidence_fetch/settings.py",
+      "grep -qE '^RETRY_HTTP_CODES = \\[403,' fetcher/evidence_fetch/settings.py",
+      "! grep -rn 'evidence_fetch' scaffold.py templates/",
+      "uv sync --project fetcher",
+      "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q",
+      "python3 -m unittest tests.test_scaffold -q"
+    ]
+  },
+  {
+    "id": "crawl-delay-middleware",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-3-crawl-delay-middleware.md",
+    "tier": "contract",
+    "checks": [
+      "test -f fetcher/evidence_fetch/middlewares/crawl_delay.py",
+      "grep -qF 'CrawlDelayRobotsMiddleware' fetcher/evidence_fetch/settings.py",
+      "grep -qF '\"scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware\": None' fetcher/evidence_fetch/settings.py",
+      "grep -qF 'test_absent_delay_leaves_the_default' fetcher/tests/test_crawl_delay.py",
+      "grep -qF 'test_existing_higher_delay_is_never_lowered' fetcher/tests/test_crawl_delay.py",
+      "grep -qF 'test_delay_is_capped_at_max' fetcher/tests/test_crawl_delay.py",
+      "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q"
+    ]
+  },
+  {
+    "id": "status-backoff",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-4-status-backoff.md",
+    "tier": "code-complete",
+    "checks": [
+      "test -f fetcher/evidence_fetch/backoff.py",
+      "grep -qF 'RETRYABLE = frozenset({403,' fetcher/evidence_fetch/backoff.py",
+      "grep -qF 'test_403_is_retryable_before_exhaustion' fetcher/tests/test_backoff.py",
+      "grep -qF 'test_403_becomes_blocked_only_after_exhaustion' fetcher/tests/test_backoff.py",
+      "grep -qF 'test_past_date_clamps_to_zero' fetcher/tests/test_backoff.py",
+      "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q"
+    ]
+  },
+  {
+    "id": "manifest-writer",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-5-manifest-writer.md",
+    "tier": "contract",
+    "checks": [
+      "test -f fetcher/evidence_fetch/manifest.py",
+      "grep -qF 'cache_relpath' fetcher/evidence_fetch/manifest.py",
+      "grep -qF 'REQUIRED_KEYS' fetcher/evidence_fetch/manifest.py",
+      "! grep -qF 'normalized_content_sha256' fetcher/evidence_fetch/manifest.py",
+      "grep -qF 'test_503_then_200_produces_two_entries_and_url_not_failed' fetcher/tests/test_manifest.py",
+      "grep -qF 'test_partial_final_line_is_tolerated' fetcher/tests/test_manifest.py",
+      "grep -qF 'test_prior_fetch_ref_points_at_most_recent_2xx' fetcher/tests/test_manifest.py",
+      "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q"
+    ]
+  },
+  {
+    "id": "fetch-spider",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-6-fetch-spider.md",
+    "tier": "contract",
+    "checks": [
+      "test -f fetcher/evidence_fetch/spiders/fetch.py",
+      "test -f fetcher/evidence_fetch/cli.py",
+      "grep -qF 'test_json_and_html_take_the_same_path' fetcher/tests/test_spider.py",
+      "grep -qF 'test_rerun_refetches_nothing' fetcher/tests/test_spider.py",
+      "grep -qF 'test_malformed_seeds_exits_2_before_any_request' fetcher/tests/test_spider.py",
+      "grep -qF -- '--contact is required' fetcher/evidence_fetch/cli.py",
+      "grep -qF 'cache/' fetcher/README.md",
+      "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q"
+    ]
+  },
+  {
+    "id": "wayback-adapter",
+    "spec": "docs/plans/2026-07-25-retrieval-fetcher/task-7-wayback-adapter.md",
+    "tier": "code-complete",
+    "checks": [
+      "test -f fetcher/evidence_fetch/wayback.py",
+      "grep -qF 'id_/' fetcher/evidence_fetch/wayback.py",
+      "grep -qF '3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ' fetcher/evidence_fetch/wayback.py",
+      "grep -qF 'test_distinct_digests_dedupes_globally_not_adjacently' fetcher/tests/test_wayback.py",
+      "grep -qF 'test_capture_url_fetches_through_the_ordinary_spider_path' fetcher/tests/test_wayback.py",
+      "! grep -qiE 'wayback|archive\\.org' fetcher/evidence_fetch/spiders/fetch.py",
+      "grep -qF 'Archived captures' method/GRADING.md",
+      "grep -qF 'capture date' method/GRADING.md",
+      "! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\\bidea-gen\\b' method/",
+      "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q",
+      "python3 -m unittest tests.test_scaffold -q"
     ]
   }
 ]
