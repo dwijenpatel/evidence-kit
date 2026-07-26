@@ -40,7 +40,8 @@ From Scrapy, as installed (read the installed version; do not trust this restate
 ```python
 scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware
     def process_request(self, request, spider): ...
-    def robot_parser(self, request, spider): ...   # -> parser or Deferred
+    async def robot_parser(self, request): ...     # awaitable; NO spider argument
+                                                   # (verified against scrapy 2.17.0)
 scrapy.crawler.Crawler.engine.downloader.slots   # dict[str, Slot]; Slot has .delay
 scrapy.utils.httpobj.urlparse_cached(request)    # -> ParseResult
 ```
@@ -58,7 +59,7 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
     """RobotsTxtMiddleware that also enforces the Crawl-delay it parses."""
 
     DEFAULT_DELAY: float   # from settings DOWNLOAD_DELAY
-    MAX_DELAY: float       # from settings AUTOTHROTTLE_MAX_DELAY, the 60s ceiling
+    MAX_DELAY: float       # from settings CRAWL_DELAY_CEILING, the 60s ceiling
 ```
 
 Registered at the same priority the stock middleware occupies, replacing it.
@@ -70,12 +71,16 @@ Registered at the same priority the stock middleware occupies, replacing it.
    `min(declared, MAX_DELAY)`.
 3. If it returns `None` — no `Crawl-delay` declared — leave the slot at `DEFAULT_DELAY`.
    **This does NOT mean set it to zero.**
-4. Never *lower* a slot delay below what is already set. AutoThrottle may have raised it
-   because the host is struggling; a declared 1s must not undo that.
+4. Never *lower* a slot delay below what is already set. A declared 1s must not undo a
+   larger delay another component set.
 5. Allow/disallow behaviour is unchanged — that is the superclass's job and it is correct.
+6. **The delay persists for the life of the crawl.** Nothing else may write `slot.delay`;
+   task 2 disables AutoThrottle for exactly this reason. **This does NOT mean the delay is
+   re-applied per response** — it is set once, and the guarantee comes from no other
+   component overwriting it. A regression test asserts the value survives N responses.
 
 **Worked example.** Host declares `Crawl-delay: 7`, `DOWNLOAD_DELAY = 5.0`,
-`AUTOTHROTTLE_MAX_DELAY = 60.0`:
+`CRAWL_DELAY_CEILING = 60.0`:
 
 | Host declares | Slot delay before | Slot delay after |
 |---|---|---|
@@ -83,7 +88,8 @@ Registered at the same priority the stock middleware occupies, replacing it.
 | `Crawl-delay: 15` | 5.0 | **15.0** |
 | `Crawl-delay: 900` | 5.0 | **60.0** (ceiling) |
 | nothing | 5.0 | **5.0** |
-| `Crawl-delay: 1` | 12.0 (AutoThrottle raised it) | **12.0** (never lowered) |
+| `Crawl-delay: 1` | 12.0 (set by another component) | **12.0** (never lowered) |
+| `Crawl-delay: 7`, then 10 further responses | 7.0 | **7.0** (does not decay) |
 
 The 900 → 60 row is the one to get right: a host asking for 15 minutes is telling us it
 does not want casual automated traffic, and the correct response is to stop and look for an
@@ -151,15 +157,30 @@ class CrawlDelayTests(unittest.TestCase):
 
     def test_disallowed_path_is_still_blocked(self): ...
         # /private raises IgnoreRequest, proving the superclass still works
+
+    def test_delay_survives_ten_responses(self): ...
+        # robots declares 7; drive 10 responses through the downloader; assert
+        # slot.delay is still 7.0 at the end. THIS IS THE F1 REGRESSION TEST:
+        # with AUTOTHROTTLE_ENABLED = True it reads 5.0 after the first 200.
+
+    def test_slot_created_after_robots_still_gets_the_delay(self): ...
+        # call _apply_delay when slots has no entry for the host, THEN create the
+        # slot and call again -> slot.delay == 7.0. THIS IS THE F3 REGRESSION
+        # TEST: with `_applied.add` before the slot lookup it stays at 5.0.
 ```
 
 Implement each with the real middleware wired to a `Crawler` built by
 `scrapy.utils.test.get_crawler`, then assert on
 `crawler.engine.downloader.slots[<host>].delay`.
 
-**One end-to-end timing test**, marked as the slow one, asserting that two requests to a
-host declaring `Crawl-delay: 2` are separated by ≥2s wall-clock. Use 2, not 7 — the test
-must prove the wiring, and every second of test runtime is paid on every run forever.
+**One end-to-end timing test**, marked as the slow one: run it with `DOWNLOAD_DELAY = 1.0`
+against a host declaring `Crawl-delay: 3`, and assert two requests are separated by ≥3s
+wall-clock.
+
+**The declared delay must exceed `DOWNLOAD_DELAY` or the test proves nothing.** The original
+version used `Crawl-delay: 2` against `DOWNLOAD_DELAY = 5.0`: the middleware computes
+`max(5.0, 2.0) = 5.0`, so the ≥2s assertion holds even if the middleware never runs. Lowering
+`DOWNLOAD_DELAY` for this test keeps it discriminating at 3s of runtime instead of 8.
 
 ## Step 2 — implementation
 
@@ -172,22 +193,37 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
         super().__init__(crawler)
         self.crawler = crawler
         self.DEFAULT_DELAY = crawler.settings.getfloat("DOWNLOAD_DELAY", 5.0)
-        self.MAX_DELAY = crawler.settings.getfloat("AUTOTHROTTLE_MAX_DELAY", 60.0)
-        self._applied: set[str] = set()      # netlocs already adjusted
+        self.MAX_DELAY = crawler.settings.getfloat("CRAWL_DELAY_CEILING", 60.0)
+        self._applied: set[str] = set()      # netlocs whose delay is now set
 
     def _apply_delay(self, netloc, parser):
         if netloc in self._applied:
             return
-        declared = parser.crawl_delay(self._robotstxt_useragent
-                                      or self.crawler.settings["USER_AGENT"])
-        self._applied.add(netloc)
-        if declared is None:
-            return                            # keep DOWNLOAD_DELAY; do NOT zero it
+        # Look the slot up FIRST. Marking a netloc applied before we have a slot
+        # strands it forever: the guard above returns on every later call and the
+        # declared delay is never applied. (Plan-review F3.)
         slot = self.crawler.engine.downloader.slots.get(netloc)
         if slot is None:
-            return
+            return                            # NOT marked; retried on the next request
+        try:
+            declared = parser.crawl_delay(self._robotstxt_useragent
+                                          or self.crawler.settings["USER_AGENT"])
+        except Exception:
+            logger.warning("crawl_delay lookup failed for %s; using DEFAULT_DELAY",
+                           netloc)
+            declared = None
+        self._applied.add(netloc)             # a slot existed: this host is settled
+        if declared is None:
+            return                            # keep DOWNLOAD_DELAY; do NOT zero it
         slot.delay = max(slot.delay, min(float(declared), self.MAX_DELAY))
 ```
+
+**Why the one-shot memo is now safe.** It was not, before: `AUTOTHROTTLE_ENABLED = True`
+rewrote `slot.delay` on every response with a global floor of `DOWNLOAD_DELAY`, so a per-host
+7.0 was dragged to 5.0 by the first 200 and this middleware never re-asserted it. Task 2 now
+sets `AUTOTHROTTLE_ENABLED = False`, so **nothing else writes `slot.delay`** and a single
+assignment holds for the life of the crawl. If AutoThrottle is ever re-enabled, this memo must
+go and the delay must be re-asserted per response — the two designs are not compatible.
 
 Hook `_apply_delay` where the parser for a host first becomes available. Read the installed
 `RobotsTxtMiddleware` to find the right seam — it differs across Scrapy versions, and
@@ -235,7 +271,11 @@ grep -qF '"scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware": None' fe
 grep -qF 'test_absent_delay_leaves_the_default' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_existing_higher_delay_is_never_lowered' fetcher/tests/test_crawl_delay.py
 grep -qF 'test_delay_is_capped_at_max' fetcher/tests/test_crawl_delay.py
-! grep -rn 'http://\(?!127\.0\.0\.1\)' fetcher/tests/ || true
+grep -qF 'test_declared_delay_is_applied_to_the_slot' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_delay_survives_ten_responses' fetcher/tests/test_crawl_delay.py
+grep -qF 'test_slot_created_after_robots_still_gets_the_delay' fetcher/tests/test_crawl_delay.py
+grep -qF 'CRAWL_DELAY_CEILING' fetcher/evidence_fetch/middlewares/crawl_delay.py
+! grep -qF 'AUTOTHROTTLE_MAX_DELAY' fetcher/evidence_fetch/middlewares/crawl_delay.py
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```
 

@@ -26,7 +26,10 @@
       "test -f fetcher/README.md",
       "grep -qF 'scrapy>=2.17' fetcher/pyproject.toml",
       "grep -qF 'CONCURRENT_REQUESTS_PER_DOMAIN = 1' fetcher/evidence_fetch/settings.py",
-      "grep -qF 'AUTOTHROTTLE_MAX_DELAY = 60.0' fetcher/evidence_fetch/settings.py",
+      "grep -qF 'CRAWL_DELAY_CEILING = 60.0' fetcher/evidence_fetch/settings.py",
+      "grep -qF 'AUTOTHROTTLE_ENABLED = False' fetcher/evidence_fetch/settings.py",
+      "grep -qF 'RANDOMIZE_DOWNLOAD_DELAY = False' fetcher/evidence_fetch/settings.py",
+      "! grep -qE '^AUTOTHROTTLE_ENABLED = True|^RANDOMIZE_DOWNLOAD_DELAY = True' fetcher/evidence_fetch/settings.py",
       "grep -qE '^RETRY_HTTP_CODES = \\[403,' fetcher/evidence_fetch/settings.py",
       "! grep -rn 'evidence_fetch' scaffold.py templates/",
       "uv sync --project fetcher",
@@ -45,6 +48,11 @@
       "grep -qF 'test_absent_delay_leaves_the_default' fetcher/tests/test_crawl_delay.py",
       "grep -qF 'test_existing_higher_delay_is_never_lowered' fetcher/tests/test_crawl_delay.py",
       "grep -qF 'test_delay_is_capped_at_max' fetcher/tests/test_crawl_delay.py",
+      "grep -qF 'test_declared_delay_is_applied_to_the_slot' fetcher/tests/test_crawl_delay.py",
+      "grep -qF 'test_delay_survives_ten_responses' fetcher/tests/test_crawl_delay.py",
+      "grep -qF 'test_slot_created_after_robots_still_gets_the_delay' fetcher/tests/test_crawl_delay.py",
+      "grep -qF 'CRAWL_DELAY_CEILING' fetcher/evidence_fetch/middlewares/crawl_delay.py",
+      "! grep -qF 'AUTOTHROTTLE_MAX_DELAY' fetcher/evidence_fetch/middlewares/crawl_delay.py",
       "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q"
     ]
   },
@@ -87,6 +95,9 @@
       "grep -qF 'test_rerun_refetches_nothing' fetcher/tests/test_spider.py",
       "grep -qF 'test_malformed_seeds_exits_2_before_any_request' fetcher/tests/test_spider.py",
       "grep -qF -- '--contact is required' fetcher/evidence_fetch/cli.py",
+      "! grep -qE 'if .*content_type.*==|if .*\\.json\\b.*:' fetcher/evidence_fetch/spiders/fetch.py",
+      "grep -qF 'handle_httpstatus_all' fetcher/evidence_fetch/spiders/fetch.py",
+      "grep -qF 'test_503_reaches_the_recorder_and_is_cached' fetcher/tests/test_spider.py",
       "grep -qF 'cache/' fetcher/README.md",
       "uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q"
     ]

@@ -119,9 +119,61 @@ syntax errors** across every check; placeholder scan clean; each `Consumes` bloc
 matching `Provides`. Of the checks runnable today, 6 pass — 2 assert pre-existing text that
 must survive an edit, and 4 are negative checks paired with a `test -f` in the same task.
 
+## Amendment 1 — plan-review blockers F1–F3, 2026-07-25
+
+`/one-punch:plan-review` (full tier) raised 53 candidates; **26 survived adversarial
+verification**; 3 were blockers. Report: [`plan-review-report.md`](../../../plan-review-report.md).
+The operator directed F1–F3 applied. The remaining 23 findings are **not** addressed here.
+
+Each blocker had the same shape: **it defeated an acceptance criterion while every gating check
+stayed green.**
+
+| # | Was | Now | Why it mattered |
+|---|---|---|---|
+| **F1** | `AUTOTHROTTLE_ENABLED = True`, `RANDOMIZE_DOWNLOAD_DELAY = True` | both `False`; new `CRAWL_DELAY_CEILING = 60.0` replaces the borrowed `AUTOTHROTTLE_MAX_DELAY` | **A1 broken twice from task 2's own pinned constants.** AutoThrottle's `_adjust_delay` ends `slot.delay = new_delay` clamped to a *global* floor of `DOWNLOAD_DELAY`, so a per-host 7.0 is dragged to 5.0 by the **first 200 response** — there is no per-host mindelay, so no configuration rescues it. Separately, `uniform(0.5·delay, 1.5·delay)` floors a declared 7s at **3.5s**. A declared delay is a minimum; jitter below a minimum is a violation. |
+| **F2** | Task 6 item 4: "For each response, regardless of status…" | new item 4a pinning `handle_httpstatus_all = True` | Scrapy's `HttpErrorMiddleware` drops every non-2xx **before the callback**. A 503 produced zero manifest entries, a 403 challenge page was never cached, and A4's backoff never fired — **A3, A4, and error-body caching all failed silently.** The setting appears nowhere in the original plan. |
+| **F3** | `self._applied.add(netloc)` before the slot lookup | slot looked up first; a netloc is marked applied only once a slot existed | A host whose slot did not yet exist was marked done and its declared delay **never applied**. Every task-3 test asserts on a slot that already exists, so no test could see it. |
+
+**Two consequential edits F1 forced, recorded because they are easy to mistake for scope creep:**
+
+1. **`CRAWL_DELAY_CEILING` is a new setting, not a rename for its own sake.** With AutoThrottle
+   off, `AUTOTHROTTLE_MAX_DELAY` is inert — and a middleware reading an inert setting is a trap
+   for whoever turns AutoThrottle back on. Task 3 now reads the new name, and a check forbids the
+   old one appearing in `crawl_delay.py`.
+2. **The end-to-end timing test was non-discriminating and is fixed.** It used `Crawl-delay: 2`
+   against `DOWNLOAD_DELAY = 5.0`; the middleware computes `max(5.0, 2.0) = 5.0`, so the ≥2s
+   assertion held even if the middleware never ran. It now uses `DOWNLOAD_DELAY = 1.0` against
+   `Crawl-delay: 3`. **A regression test that cannot fail is not a regression test.**
+
+**Two regression tests added, each named for the defect it catches:**
+`test_delay_survives_ten_responses` (F1 — reads 5.0 after the first 200 under the old settings)
+and `test_slot_created_after_robots_still_gets_the_delay` (F3 — stays at 5.0 under the old
+ordering). Both are now gated in `tasks.json`, as is
+`test_declared_delay_is_applied_to_the_slot`, which the review found was the plan's declared
+"highest-value test" and the one name the manifest did not grep.
+
+**Adjacent, done because the edits touched the same lists — F7's check drift is closed.** All
+seven spec `## Checks` blocks now match `tasks.json` command-for-command, verified
+programmatically. That closed three real defects: the A7-enforcing negative grep existed only in
+task 6's spec and **the runner never executed it**; task 6's spec wrote `grep -qF '--contact is
+required'` without `--`, which grep parses as a long option and which was therefore red for
+every possible implementation; and task 3's spec carried a no-network check that could never fail
+(BRE has no `(?!`, and `|| true` forces exit 0), now deleted rather than kept as decoration.
+
+**Also corrected in passing:** task 3's `Consumes` restated `def robot_parser(self, request,
+spider)` returning "parser or Deferred". Scrapy 2.17.0 has `async def robot_parser(self,
+request)` — no `spider` argument, awaitable.
+
+**Still open — 23 confirmed findings, F4 onward**, including: "raw bytes" undefined for a
+compressed response (38 vs 1013 bytes, and it touches the fidelity set D18 calls the one-way
+door); two retry mechanisms owning the same status codes, with `Retry-After` never honoured;
+nine checks that assert text rather than behaviour; and the A7 test being unsatisfiable as
+written. See the report.
+
 ## Ratification
 
 - **ratified-by:** *pending*
 - **date:** *pending*
+- **amended:** F1–F3 applied 2026-07-25 before any ratification; **F4–F26 outstanding**
 
 Any edit after ratification voids it.

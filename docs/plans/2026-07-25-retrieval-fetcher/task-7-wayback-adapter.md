@@ -173,6 +173,8 @@ test -f fetcher/evidence_fetch/wayback.py
 grep -qF 'id_/' fetcher/evidence_fetch/wayback.py
 grep -qF '3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ' fetcher/evidence_fetch/wayback.py
 grep -qF 'test_distinct_digests_dedupes_globally_not_adjacently' fetcher/tests/test_wayback.py
+grep -qF 'test_capture_url_fetches_through_the_ordinary_spider_path' fetcher/tests/test_wayback.py
+! grep -qiE 'wayback|archive\.org' fetcher/evidence_fetch/spiders/fetch.py
 grep -qF 'Archived captures' method/GRADING.md
 grep -qF 'capture date' method/GRADING.md
 ! grep -rEn --exclude-dir=__pycache__ '/Users/|/home/|/Volumes/|~/|repos/evidence-|\bidea-gen\b' method/

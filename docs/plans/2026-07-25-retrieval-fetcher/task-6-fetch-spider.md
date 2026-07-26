@@ -70,6 +70,12 @@ the wire.
    persisted `JOBDIR` frontier give A9's resume.
 4. For each response, **regardless of status or content type**: write the body to the
    content-addressed cache, build the manifest entry, append it.
+4a. **The spider sets `handle_httpstatus_all = True`.** Without it Scrapy's
+   `HttpErrorMiddleware` drops every non-2xx response before the callback ever runs, so a 503
+   produces **zero** manifest entries instead of the one A3 requires, a 403 challenge page is
+   never cached, and A4's backoff never fires. **This does NOT mean errors are ignored** —
+   `classify_status` still sets the disposition; the setting only guarantees the response is
+   *seen*. (Plan-review F2.)
 5. `content_type` is recorded and nothing is branched on it. **This is A7.** A JSON body and
    an HTML body traverse identical code; the only difference that ever exists is the value
    in that field.
@@ -114,6 +120,9 @@ test_interrupted_run_resumes_from_jobdir       # A9
 test_malformed_seeds_exits_2_before_any_request # server records zero hits
 test_missing_contact_exits_2
 test_403_then_200_yields_two_entries_and_the_body_is_cached
+test_503_reaches_the_recorder_and_is_cached    # F2 regression: without
+                                               # handle_httpstatus_all this yields
+                                               # zero manifest lines
 test_redirect_records_full_chain_and_url_final
 ```
 
@@ -135,11 +144,12 @@ counts hits per path so "zero fetches" is directly assertable rather than inferr
 | Seeds malformed | exit 2, no network call | `expected` or `type: Seeds` |
 | Cache root not writable | exit 2 | `cache root is not writable` |
 | A single URL fails all retries | crawl continues; entries recorded | — |
+| Any non-2xx response | recorded and cached like any other; **never** dropped | — |
 | Manifest schema violation | crash the run | `missing required key` |
 
-The last two rows differ on purpose. A dead host is expected and must not stop a multi-host
-crawl. A manifest schema violation is a bug in this code, and continuing would write
-unusable records — fail loudly instead.
+**"A single URL fails all retries" and "Manifest schema violation" differ on purpose.** A dead
+host is expected and must not stop a multi-host crawl. A manifest schema violation is a bug in
+this code, and continuing would write unusable records — fail loudly instead.
 
 ## Runbook — add to `fetcher/README.md`
 
@@ -156,8 +166,10 @@ test -f fetcher/evidence_fetch/cli.py
 grep -qF 'test_json_and_html_take_the_same_path' fetcher/tests/test_spider.py
 grep -qF 'test_rerun_refetches_nothing' fetcher/tests/test_spider.py
 grep -qF 'test_malformed_seeds_exits_2_before_any_request' fetcher/tests/test_spider.py
-grep -qF '--contact is required' fetcher/evidence_fetch/cli.py
+grep -qF -- '--contact is required' fetcher/evidence_fetch/cli.py
 ! grep -qE 'if .*content_type.*==|if .*\.json\b.*:' fetcher/evidence_fetch/spiders/fetch.py
+grep -qF 'handle_httpstatus_all' fetcher/evidence_fetch/spiders/fetch.py
+grep -qF 'test_503_reaches_the_recorder_and_is_cached' fetcher/tests/test_spider.py
 grep -qF 'cache/' fetcher/README.md
 uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher -q
 ```

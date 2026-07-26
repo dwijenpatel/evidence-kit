@@ -383,11 +383,24 @@ ROBOTSTXT_OBEY = True
 CONCURRENT_REQUESTS_PER_DOMAIN = 1      # one connection per host, always
 CONCURRENT_REQUESTS = 8                 # across hosts; politeness is per-host
 DOWNLOAD_DELAY = 5.0                    # floor where no Crawl-delay is declared
-RANDOMIZE_DOWNLOAD_DELAY = True
-AUTOTHROTTLE_ENABLED = True
-AUTOTHROTTLE_START_DELAY = 5.0
-AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
-AUTOTHROTTLE_MAX_DELAY = 60.0           # the ceiling from rule 17
+
+# A1 requires "waits >= the declared Crawl-delay". Both of the following would
+# break that, and both were measured breaking it — see plan.md Amendment 1.
+#
+#   AUTOTHROTTLE_ENABLED = True   ->  AutoThrottle's _adjust_delay runs on every
+#       response and ends `slot.delay = new_delay`, clamped to a GLOBAL floor of
+#       DOWNLOAD_DELAY. A per-host 7.0 is dragged back to 5.0 by the FIRST 200.
+#       There is no per-host mindelay, so no configuration rescues this.
+#   RANDOMIZE_DOWNLOAD_DELAY = True  ->  Slot.download_delay() returns
+#       uniform(0.5*delay, 1.5*delay); at delay=7.0 the floor is 3.5s.
+#       A declared delay is a MINIMUM, and jitter below a minimum is a violation.
+AUTOTHROTTLE_ENABLED = False
+RANDOMIZE_DOWNLOAD_DELAY = False
+
+# The rule-17 ceiling. Deliberately NOT AUTOTHROTTLE_MAX_DELAY: that setting is
+# inert once AutoThrottle is off, and reading an inert setting is a trap for the
+# next person who turns AutoThrottle back on. Task 3 reads this name.
+CRAWL_DELAY_CEILING = 60.0
 
 # Identify the crawler. RFC 9309 §2.2.1: robots.txt groups match on a product token,
 # so an unidentified crawler falls under the most restrictive `*` group.
@@ -450,7 +463,10 @@ test -f fetcher/pyproject.toml
 test -f fetcher/README.md
 grep -qF 'scrapy>=2.17' fetcher/pyproject.toml
 grep -qF 'CONCURRENT_REQUESTS_PER_DOMAIN = 1' fetcher/evidence_fetch/settings.py
-grep -qF 'AUTOTHROTTLE_MAX_DELAY = 60.0' fetcher/evidence_fetch/settings.py
+grep -qF 'CRAWL_DELAY_CEILING = 60.0' fetcher/evidence_fetch/settings.py
+grep -qF 'AUTOTHROTTLE_ENABLED = False' fetcher/evidence_fetch/settings.py
+grep -qF 'RANDOMIZE_DOWNLOAD_DELAY = False' fetcher/evidence_fetch/settings.py
+! grep -qE '^AUTOTHROTTLE_ENABLED = True|^RANDOMIZE_DOWNLOAD_DELAY = True' fetcher/evidence_fetch/settings.py
 grep -qE '^RETRY_HTTP_CODES = \[403,' fetcher/evidence_fetch/settings.py
 ! grep -rn 'evidence_fetch' scaffold.py templates/
 uv sync --project fetcher
