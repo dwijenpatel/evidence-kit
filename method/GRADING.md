@@ -143,6 +143,16 @@ measures against.
 **The composition rule:** a fact is only as durable as its fastest-decaying dependency.
 Replication buys warrant, not shelf life.
 
+**Archived captures.** A row sourced from a web archive carries the **capture date** as
+`as_of`, never the retrieval date, and it is evidence about what the page said *at that
+capture*. Cite the capture URL including its timestamp, so the claim is re-checkable
+against the same bytes. A capture is not weaker evidence than a live fetch for the moment
+it covers — but it says nothing about the present, and a `price-surface` row built from a
+two-year-old capture is two years stale no matter when it was retrieved. The archive's own
+content digest may be recorded alongside; the base32 SHA-1 of empty content
+(`3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ`) marks a capture that stored nothing and must never be
+read as "the page was empty."
+
 ## Absence findings
 
 "No surveyed X does Y" is a genuinely useful claim (it is how unoccupied niches are found)

@@ -182,7 +182,8 @@ is load-bearing") — an honest weak contract beats a pretended strong one.
   fit-check below ("not wider than what was measured") cannot be applied — a volume-tiered
   price and a queue-depth-specific latency are different claims, not contradictory ones;
   and `as_of` plus `source` are what make a later decay recalibration possible, since a
-  half-life is learned by re-fetching and measuring what moved. The corpus guard enforces
+  half-life is learned by re-fetching and measuring what moved (for an archived capture,
+  see GRADING.md "Archived captures"). The corpus guard enforces
   all of this — and validates `decay` against `decay_classes` in `tests/corpus_guard.json`
   when that key is set. The pass-time skeleton is
   `templates/corpus/external/_parameters.md.tmpl`.
