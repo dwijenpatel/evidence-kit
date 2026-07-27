@@ -376,10 +376,19 @@ that attempt; the parser cache is per-crawl and the next run re-asks), and the
 `max_attempts`-hardcode mutation gap (task 4 is `code-complete`; a hardcode is a
 transcription failure, foreclosed by executing the fences).
 
-Validation after applying: checks regenerated from fences (drift zero by construction),
-`bash -n` clean, negative-check pairing swept by script, the amended task-2 fences
-re-extracted and executed, and the two new anchored greps demonstrated red against their
-named defects.
+Validation after applying: 140 checks regenerated from fences (drift zero, re-verified
+independently), `bash -n` clean on all 140, negative-check pairing 9 of 9 by script, the
+amended task-2/task-4 fences re-extracted and executed (24/24, including the new
+`DOWNLOAD_TIMEOUT` assertion), and the two new anchored greps demonstrated red against
+their named defects. **The amended task-3 fences were then executed as shipped** — the
+tech-plan fence-execution rule this round's blockers motivated — by extracting them
+verbatim from this spec at runtime, composing the subclass with only the
+documented-freedom glue (the `process_request_2` attachment hook the contract tier
+leaves open), and driving `process_request` through the harness fence: happy path
+5.0 → 7.0, `/private` raises `IgnoreRequest`, a transport-dead https robots fetch
+records `{"robots_url": "https://<netloc>/robots.txt", null, null}`, and the
+second-port sequence (7 then 15) ends the shared slot at 15.0. The U3 `AttributeError`
+was also re-reproduced against the pre-fix fence text before the fix was accepted.
 
 ## Ratification
 
