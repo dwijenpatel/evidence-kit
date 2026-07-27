@@ -17,6 +17,29 @@ package from shadowing `fetcher/tests`):
 uv run --project fetcher python -P -m unittest discover -s fetcher/tests -t fetcher -q
 ```
 
+## Running it
+
+From the repository root:
+
+```sh
+uv run --project fetcher python -m evidence_fetch \
+    --seeds <path to a Seeds document> \
+    --cache-root <dir> \
+    --manifest <path to manifest.jsonl> \
+    --contact <URL or mailto: for the User-Agent> \
+    [--jobdir <dir>]        # default: <cache-root>/.jobdir
+    [--limit N]             # stop scheduling new seeds after N 2xx seed fetches
+```
+
+`--contact` is required: it fills the User-Agent so site operators can reach
+you, and robots.txt matches crawlers by that product token. Exit codes: **0**
+for every completed crawl (a host that ended `blocked` is an attempt-sequence
+outcome, not a run failure), **2** for startup failures (missing/malformed
+seeds, a non-fetchable seed URL, missing `--contact`, unwritable cache root)
+before any network call, **1** if the crawl stopped on a manifest schema
+violation. `<cache-root>/httpcache/` and `<cache-root>/.jobdir/` are
+disposable — deleting them costs at most a refetch.
+
 ## What it writes, and where
 
 Exactly two things, both under the corpus you point it at:

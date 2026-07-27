@@ -15,13 +15,29 @@ class FetchSpider(scrapy.Spider):
     # the recorder still writes the line, but retry decisions would never fire.
     custom_settings = {"HTTPERROR_ALLOW_ALL": True}
 
-    def __init__(self, seeds_path, *args, **kwargs):
+    def __init__(self, seeds_path, limit=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.seeds_path = seeds_path
+        self.limit = int(limit) if limit is not None else None
+
+    def _limit_reached(self) -> bool:
+        # The recorder counts 2xx responses with a non-null seed_signal;
+        # robots fetches are overhead, not yield, and never advance it.
+        if self.limit is None:
+            return False
+        recorded = self.crawler.stats.get_value("evidence_fetch/seed_2xx", 0)
+        return recorded >= self.limit
 
     async def start(self):
         # scrapy 2.17: the classic start_requests() is consulted by nothing.
+        seen: set[str] = set()
         for seed in read_seeds(self.seeds_path):
+            if seed.url in seen:
+                self.logger.warning("duplicate seed (row ignored): %s", seed.url)
+                continue
+            seen.add(seed.url)
+            if self._limit_reached():
+                return
             yield scrapy.Request(
                 seed.url,
                 callback=self.parse,

@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from evidence_fetch.cache import write_artifact
-from evidence_fetch.manifest import append_entry, load_prior_index
+from evidence_fetch.manifest import (
+    ManifestSchemaError,
+    append_entry,
+    load_prior_index,
+)
 
 
 def _utc_now_ms() -> str:
@@ -104,7 +108,17 @@ class RecordMiddleware:
             "seed_signal": request.meta.get("seed_signal"),
             "failure": None,
         }
-        append_entry(self.manifest_path, entry)
+        try:
+            append_entry(self.manifest_path, entry)
+        except ManifestSchemaError:
+            # A schema violation is a bug in this code, and continuing would
+            # write unusable records. Raising alone is swallowed as this
+            # request's download error (probed), so stop the engine explicitly;
+            # the CLI reads this finish_reason and exits 1.
+            self.crawler.engine.close_spider(spider, "manifest-schema-violation")
+            raise
         if 200 <= response.status < 300:
             self._prior[url_requested] = digest
+            if entry["seed_signal"] is not None:
+                self.crawler.stats.inc_value("evidence_fetch/seed_2xx")
         return response
