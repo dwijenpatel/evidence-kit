@@ -56,6 +56,32 @@ while `manifest.jsonl` stays tracked:
 cache/
 ```
 
+## Resume, and what deleting state costs
+
+A run is interruptible and resumable: the jobdir persists the frontier and the
+seen-set, and the HTTP cache under the cache root answers already-fetched URLs
+without touching the wire. Re-running a completed crawl with the same
+cache-root and manifest fetches nothing and appends nothing — robots.txt
+included. One Ctrl-C is a graceful stop; requests still in the scheduler
+resume on the next run.
+
+Deleting `<cache-root>/.jobdir/` re-walks every seed, but what that costs
+depends on each URL's last status:
+
+- **Last status 2xx or 3xx:** appends nothing — the stored response is served
+  from the HTTP cache, and a cache hit is not an attempt.
+- **Last status retryable (403, 429, 5xx…):** appends a **fresh attempt
+  sequence** at wire cost. That is deliberate — retryable statuses are kept
+  out of the HTTP cache so backoff reaches the wire — but it means: delete
+  `.jobdir` only when you intend to re-attempt the failures.
+
+A retry interrupted mid-backoff by a forced stop (second Ctrl-C) or a crash is
+lost, with its URL left at `disposition: "retry"`; the remedy is a fresh
+jobdir. `--limit N` counts 2xx seed fetches recorded **this run**: retries
+already decided still run to their conclusion (the manifest may exceed N), and
+a warm HTTP cache makes the limit a no-op for already-cached URLs — delete
+`<cache-root>/httpcache/` too if a smoke run must be bounded end to end.
+
 ## Adding a seed
 
 Edit the corpus's `seeds.md` by hand — one table row per source
