@@ -1,0 +1,13 @@
+[project]
+name = "evidence-fetch"
+version = "0.1.0"
+description = "Polite fetcher with a byte-exact cache, for an evidence corpus."
+requires-python = ">=3.12"
+dependencies = ["scrapy>=2.17"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["evidence_fetch"]
