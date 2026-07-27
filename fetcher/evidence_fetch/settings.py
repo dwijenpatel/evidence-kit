@@ -78,6 +78,11 @@ HTTPCACHE_DIR = "httpcache"
 # HttpCompressionMiddleware (590) and HttpCacheMiddleware (900), so bodies are
 # hashed as wire octets and cache-served responses arrive already flagged.
 DOWNLOADER_MIDDLEWARES = {
+    # The stock robots middleware must be OFF, not merely outranked: with both
+    # registered, robots.txt is fetched twice per host and the stock one may
+    # short-circuit first.
+    "scrapy.downloadermiddlewares.robotstxt.RobotsTxtMiddleware": None,
+    "evidence_fetch.middlewares.crawl_delay.CrawlDelayRobotsMiddleware": 100,
     "evidence_fetch.middlewares.record.RecordMiddleware": 1000,
 }
 

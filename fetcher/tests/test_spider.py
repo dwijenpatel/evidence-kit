@@ -143,14 +143,24 @@ class SpiderEndToEndTests(unittest.TestCase):
             self.assertEqual(entry["raw_bytes_length"], len(body), path)
 
     def test_robots_fallback_synthesizes_url_with_netloc(self):
-        # robots_info does not exist yet, so every line takes the fallback:
-        # netloc kept (port included), observation fields null.
-        for entry in self.lines:
-            policy = entry["fetch_policy"]
-            self.assertEqual(policy["robots_url"],
-                             f"http://127.0.0.1:{self.port}/robots.txt")
-            self.assertIsNone(policy["robots_sha256"])
-            self.assertIsNone(policy["robots_fetched_at"])
+        # The robots fetch's own entry takes the fallback (the recorder at 1000
+        # runs before the robots middleware stores provenance): netloc kept
+        # (port included), observation fields null. Seed lines carry the real
+        # provenance the crawl-delay middleware recorded.
+        robots_url = f"http://127.0.0.1:{self.port}/robots.txt"
+        robots_line = self.line_for("/robots.txt")
+        self.assertEqual(robots_line["fetch_policy"], {
+            "delay_used_s": robots_line["fetch_policy"]["delay_used_s"],
+            "robots_url": robots_url,
+            "robots_sha256": None,
+            "robots_fetched_at": None,
+        })
+        robots_digest = hashlib.sha256(ROBOTS_BODY).hexdigest()
+        for path in ("/a.json", "/b.html"):
+            policy = self.line_for(path)["fetch_policy"]
+            self.assertEqual(policy["robots_url"], robots_url)
+            self.assertEqual(policy["robots_sha256"], robots_digest)
+            self.assertIsNotNone(policy["robots_fetched_at"])
             self.assertIsInstance(policy["delay_used_s"], float)
 
     def test_useragent_sent_matches_request_headers(self):
