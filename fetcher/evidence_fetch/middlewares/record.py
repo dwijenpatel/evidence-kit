@@ -9,6 +9,7 @@ cache-served response arrives already carrying the "cached" flag.
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
+from evidence_fetch.backoff import classify_status
 from evidence_fetch.cache import write_artifact
 from evidence_fetch.manifest import (
     ManifestSchemaError,
@@ -77,16 +78,15 @@ class RecordMiddleware:
         last_modified = response.headers.get("Last-Modified")
         content_type = response.headers.get("Content-Type")
         ua = request.headers.get("User-Agent")
-        # Classification of non-OK statuses is backoff.classify_status's job once
-        # the retry work lands; until then a non-OK status records as "retry",
-        # never "ok".
-        disposition = "ok" if 200 <= response.status < 400 else "retry"
+        attempt_n = request.meta.get("attempt_n", 1)
+        # attempt_n is 1-based; classify_status takes 0-based, converted once.
+        disposition = classify_status(response.status, attempt_n - 1).value
 
         entry = {
             "schema": 1,
             "url_requested": url_requested,
             "url_final": request.url,
-            "attempt_n": request.meta.get("attempt_n", 1),
+            "attempt_n": attempt_n,
             "fetched_at": _utc_now_ms(),
             "http_status": response.status,
             "response_protocol": response.protocol or None,

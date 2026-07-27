@@ -22,6 +22,7 @@ from evidence_fetch.spiders.fetch import FetchSpider  # noqa: E402
 
 def main() -> None:
     seeds_path, cache_root, manifest_path = sys.argv[1:4]
+    download_delay = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
     os.makedirs(cache_root, exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(manifest_path)), exist_ok=True)
 
@@ -31,7 +32,7 @@ def main() -> None:
     settings.set("EVIDENCE_MANIFEST_PATH", manifest_path)
     settings.set("HTTPCACHE_DIR",
                  os.path.join(os.path.abspath(cache_root), "httpcache"))
-    settings.set("DOWNLOAD_DELAY", 0)
+    settings.set("DOWNLOAD_DELAY", download_delay)
     settings.set("USER_AGENT", "evidence-fetch/0.1 (+mailto:ops@example.invalid)")
 
     process = CrawlerProcess(settings, install_root_handler=False)
