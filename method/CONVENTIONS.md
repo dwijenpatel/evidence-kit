@@ -43,7 +43,8 @@ method rides on top; the format underneath is plain OKF.
   The kit's type vocabulary: `Corpus` (corpus README) · `Terminology` · `Subtopic Map`
   (external/README) · `Subtopic` (subtopic README) · `Holdings` (holdings doc) ·
   `Internal Evidence` · `Distilled Index` (distilled/README) · `Distilled` (the two Tier-A
-  docs) · `Parameters` (a cost/performance surface: one table, warrant and decay per row).
+  docs) · `Parameters` (a cost/performance surface: one table, warrant and decay per row) ·
+  `Seeds` (a fetch queue: one table, one row per source to retrieve).
   Unknown types are legal OKF; these are the ones consumers of an evidence corpus can rely
   on.
 - **Extension keys** (kit-defined, legal per OKF §4.1): `consumer` and `kit_commit` on the
@@ -185,3 +186,12 @@ is load-bearing") — an honest weak contract beats a pretended strong one.
   all of this — and validates `decay` against `decay_classes` in `tests/corpus_guard.json`
   when that key is set. The pass-time skeleton is
   `templates/corpus/external/_parameters.md.tmpl`.
+- **`Seeds` documents** carry exactly one pipe table, whose header is these four names in
+  this order — `url | added | signal | question`, compared case-insensitively — with an
+  alignment row directly beneath it and every cell of every data row non-empty. `added` is
+  an ISO date (`YYYY-MM-DD`). A cell may not contain `|` (escape it `\|`). A seed row is a
+  **request to fetch, not a claim**: it carries no warrant and enters no distillation. The
+  `signal` column records what prompted the seed — the conversation, talk, or observation —
+  because a dated record of what people are attending to is a weak leading indicator of
+  where a domain is growing, and it cannot be reconstructed after the fact. The corpus guard
+  enforces the shape. The pass-time skeleton is `templates/corpus/_seeds.md.tmpl`.

@@ -34,6 +34,9 @@ PARAM_COLUMNS = ("subject", "parameter", "value", "unit", "regime",
 # and the column would otherwise have no legal value for them.
 WARRANTS = frozenset({"A1", "A2", "A3", "A4", "M", "B", "C"})
 PARAM_TYPE = re.compile(r"""^type:\s*["']?Parameters["']?\s*(#.*)?$""", re.MULTILINE)
+SEED_COLUMNS = ("url", "added", "signal", "question")
+SEED_TYPE = re.compile(r"""^type:\s*["']?Seeds["']?\s*(#.*)?$""", re.MULTILINE)
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ALIGN_ROW = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
 CELL_SPLIT = re.compile(r"(?<!\\)\|")
 
@@ -230,6 +233,52 @@ class CorpusLinkTests(unittest.TestCase):
                     bad.append(f"{f} data row {offset}: decay `{row['decay']}` "
                                f"not in decay_classes")
         self.assertEqual(bad, [], "Parameters table defects:\n" + "\n".join(bad))
+
+    def test_seeds_tables_are_complete(self):
+        """A `type: Seeds` doc carries exactly one pipe table with the pinned columns,
+        every cell filled, and an ISO date in `added`.
+
+        The alignment row at offset 1 is skipped **by position** and must actually be an
+        alignment row; every row from offset 2 on is validated unconditionally. `signal`
+        is the column an author is most likely to leave blank and the one that cannot be
+        reconstructed later, so a blank one fails here rather than rotting quietly.
+        """
+        bad = []
+        for f in tracked_markdown():
+            with open(os.path.join(ROOT, f), encoding="utf-8") as fh:
+                body = fh.read()
+            fm = frontmatter(body)
+            if fm is None or not SEED_TYPE.search(fm):
+                continue
+            blocks = pipe_blocks(body)
+            if len(blocks) != 1:
+                bad.append(f"{f}: type Seeds needs exactly one pipe table, "
+                           f"found {len(blocks)}")
+                continue
+            header = tuple(c.lower() for c in split_pipe_row(blocks[0][0]))
+            if header != SEED_COLUMNS:
+                bad.append(f"{f}: header is {list(header)}, expected "
+                           f"{list(SEED_COLUMNS)}")
+                continue
+            if len(blocks[0]) < 2 or not ALIGN_ROW.match(blocks[0][1]):
+                bad.append(f"{f}: table has no `|---|` alignment row under the header")
+                continue
+            for offset, line in enumerate(blocks[0][2:], start=2):
+                cells = split_pipe_row(line)
+                if len(cells) != len(SEED_COLUMNS):
+                    bad.append(f"{f} seed row {offset}: {len(cells)} cells, expected "
+                               f"{len(SEED_COLUMNS)}")
+                    continue
+                empty = [c for c, v in zip(SEED_COLUMNS, cells) if not v]
+                for col in empty:
+                    bad.append(f"{f} seed row {offset}: empty `{col}`")
+                if empty:
+                    continue
+                row = dict(zip(SEED_COLUMNS, cells))
+                if not ISO_DATE.match(row["added"]):
+                    bad.append(f"{f} seed row {offset}: `added` is `{row['added']}`, "
+                               f"expected YYYY-MM-DD")
+        self.assertEqual(bad, [], "Seeds table defects:\n" + "\n".join(bad))
 
     def test_lake_citations_resolve(self):
         """Every `lake:<path>` citation resolves inside the configured lake root.

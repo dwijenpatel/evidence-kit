@@ -27,6 +27,22 @@ def write_parameters(corpus, row, header=PARAM_HEADER):
     return path
 
 
+SEED_HEADER = ("| url | added | signal | question |\n"
+               "|---|---|---|---|\n")
+SEED_ROW = ("| https://example.com/pricing | 2026-07-25 | operator noticed it in a "
+            "discussion | what does storage cost per GB-month |\n")
+
+
+def write_seeds(corpus, row, header=SEED_HEADER):
+    """Write a Seeds doc into a scaffolded corpus; return its path."""
+    path = os.path.join(corpus, "seeds.md")
+    with open(path, "w") as fh:
+        fh.write('---\ntype: Seeds\ntitle: "Fetch queue"\n'
+                 'description: Smoke fixture.\ntimestamp: 2026-07-25\n---\n\n'
+                 "# Fetch queue\n\n" + header + row + "\n")
+    return path
+
+
 def set_decay_classes(corpus, classes):
     """Add a decay_classes allow-list to a scaffolded corpus's guard config."""
     cfg_path = os.path.join(corpus, "tests", "corpus_guard.json")
@@ -257,6 +273,46 @@ class ScaffoldMatrix(unittest.TestCase):
         r = run_guard(corpus)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("expected", r.stderr + r.stdout)
+
+    def test_guard_accepts_a_complete_seeds_table(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_seeds(corpus, SEED_ROW)
+        self.assertEqual(run_guard(corpus).returncode, 0)
+
+    def test_guard_rejects_seed_row_missing_signal(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_seeds(corpus, SEED_ROW.replace(
+            "| operator noticed it in a discussion |", "|  |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `signal`", r.stderr + r.stdout)
+
+    def test_guard_rejects_seed_row_with_non_iso_added(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_seeds(corpus, SEED_ROW.replace("| 2026-07-25 |", "| last Tuesday |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("expected YYYY-MM-DD", r.stderr + r.stdout)
+
+    def test_guard_rejects_seeds_header_reordered(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        write_seeds(corpus, SEED_ROW,
+                    header=SEED_HEADER.replace("| added | signal |",
+                                               "| signal | added |"))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("expected", r.stderr + r.stdout)
+
+    def test_guard_selects_seeds_doc_with_quoted_type(self):
+        corpus = run_scaffold(self.tmp, "standalone")
+        path = write_seeds(corpus, SEED_ROW.replace("| 2026-07-25 |", "|  |"))
+        with open(path) as fh:
+            doc = fh.read()
+        with open(path, "w") as fh:
+            fh.write(doc.replace("type: Seeds", 'type: "Seeds"'))
+        r = run_guard(corpus)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("empty `added`", r.stderr + r.stdout)
 
     def test_guard_rejects_parameters_row_that_is_entirely_blank(self):
         corpus = run_scaffold(self.tmp, "standalone")
