@@ -406,6 +406,15 @@ RANDOMIZE_DOWNLOAD_DELAY = False
 # next person who turns AutoThrottle back on. Task 3 reads this name.
 CRAWL_DELAY_CEILING = 60.0
 
+# A dead host must not hold an unattended run for a quarter of an hour. Scrapy's
+# default is 180s (probed, 2.17.0): the robots fetch plus four page attempts is
+# ~15 minutes per hung host, and each backoff wait sits in the callback frame
+# (T14), so the window in which a forced stop strands a retry scales with it.
+# 30.0 is the value task 5's timeout sample was written against ("took longer
+# than 30.0 seconds" is scrapy's own message at this setting). Operator-decided
+# (round-4 U2). Comment above the line: the check anchors it whole (R7).
+DOWNLOAD_TIMEOUT = 30.0
+
 # Identify the crawler. RFC 9309 §2.2.1: robots.txt groups match on a product token,
 # so an unidentified crawler falls under the most restrictive `*` group.
 USER_AGENT = "evidence-fetch/0.1 (+{contact})"
@@ -474,6 +483,9 @@ class PolitenessSettingsTests(unittest.TestCase):
         self.assertTrue(settings.ROBOTSTXT_OBEY)
         self.assertGreaterEqual(settings.DOWNLOAD_DELAY, 5.0)
         self.assertEqual(settings.CRAWL_DELAY_CEILING, 60.0)
+        # Scrapy's default is 180 -- a hung host would hold an unattended run
+        # ~15 minutes (round-4 U2, operator-decided).
+        self.assertEqual(settings.DOWNLOAD_TIMEOUT, 30.0)
 
     def test_settings_that_defeat_a1_stay_off(self):
         # AutoThrottle rewrites slot.delay with a global DOWNLOAD_DELAY floor;
@@ -526,6 +538,7 @@ grep -qE '^AUTOTHROTTLE_ENABLED = False$' fetcher/evidence_fetch/settings.py
 grep -qE '^RANDOMIZE_DOWNLOAD_DELAY = False$' fetcher/evidence_fetch/settings.py
 grep -qE '^RETRY_ENABLED = False$' fetcher/evidence_fetch/settings.py
 grep -qE '^HTTPCACHE_IGNORE_HTTP_CODES = \[403, 408, 429, 500, 502, 503, 504, 522, 524\]$' fetcher/evidence_fetch/settings.py
+grep -qE '^DOWNLOAD_TIMEOUT = 30.0$' fetcher/evidence_fetch/settings.py
 ! grep -qE '^RETRY_HTTP_CODES' fetcher/evidence_fetch/settings.py
 grep -qF 'test_settings_that_defeat_a1_stay_off' fetcher/tests/test_settings.py
 grep -qF 'test_scrapy_retry_stays_off' fetcher/tests/test_settings.py

@@ -2,7 +2,7 @@
 
 **Target:** `docs/plans/2026-07-25-retrieval-fetcher/` after Amendment 4 · `tasks.json` (137 checks)
 **Tier:** lean — 2 translators · 2 merged finders · substrate-truth finder · 3 grouped verifiers.
-Rounds 1–3 archived at `docs/plans/2026-07-25-retrieval-fetcher/plan-review-report-round{1,2,3}.md`.
+Rounds 1–3 archived at `plan-review-report-round{1,2,3}.md` (same directory).
 **Mode:** report-only. Nothing in the plan was modified.
 **Probe substrate:** scrapy 2.17.0 · Python 3.14.6 · uv 0.11.30 — claims are true of these versions
 on this date; a dependency bump invalidates the substrate sections wholesale.

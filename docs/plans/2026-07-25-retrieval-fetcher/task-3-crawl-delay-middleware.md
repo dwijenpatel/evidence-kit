@@ -97,8 +97,8 @@ It also maintains, on the crawler object itself:
 ```python
 crawler.robots_info: dict[str, dict]
 # netloc -> {"robots_url": str,          # the URL actually fetched
-#            "robots_sha256": str|None,  # sha256 of the robots.txt bytes; None if unusable
-#            "robots_fetched_at": str|None}  # UTC ISO-8601 ms Z; None if unusable
+#            "robots_sha256": str|None,  # sha256 of the bytes; None ONLY when no
+#            "robots_fetched_at": str|None}  # response existed (_robots_error path, U12)
 ```
 
 This is the **only** place robots.txt bytes are observable — stock Scrapy hands the body
@@ -121,9 +121,17 @@ Registered at the same priority the stock middleware occupies, replacing it.
 5. Allow/disallow behaviour is unchanged — that is the superclass's job and it is correct.
 6a. **When the robots.txt response arrives, record it**: set
    `crawler.robots_info[netloc]` to the fetched URL, the SHA-256 of the response body,
-   and the UTC timestamp — before the body is handed to the parser and lost. On an
-   unusable robots response, record the URL with `None` for digest and timestamp; the
-   entry's presence still says "we asked." **A robots fetch that dies in transport
+   and the UTC timestamp — before the body is handed to the parser and lost. **A
+   delivered robots response is always recorded with its digest and timestamp, whatever
+   its status** (round-4 U12): Scrapy hands every response — 200, 404, 500 — to
+   `_parse_robots` unchanged (probed: a 404 HTML body is parsed, yields `crawl_delay
+   None`, and allows everything), so there is no parse-side or status-side "unusable"
+   predicate to branch on and none is invented here. The digest of whatever bytes the
+   host served *is* the fidelity record — a 404's digest is the honest answer to "what
+   did robots.txt say" (it said nothing parseable). **This does NOT mean a 404 blocks
+   anything** — access fails open per the error model. The `None` digest and timestamp
+   have exactly one producer: the error path below, where **no response exists at
+   all**. **A robots fetch that dies in transport
    (connection refused, DNS failure, timeout) produces no response at all**, so neither
    rule above fires — hook the superclass's error path and record the same shape with
    `None` for digest and timestamp. **`_robots_error(self, exc, netloc)` receives no
@@ -265,9 +273,14 @@ class CrawlDelayTests(unittest.TestCase):
 
     def test_second_port_on_one_hostname_still_applies_its_delay(self): ...
         # two servers, 127.0.0.1:P1 declaring Crawl-delay: 7 and 127.0.0.1:P2
-        # declaring 15 — one shared slot key. Drive robots for both; assert the
+        # declaring 15 — one shared slot key. Drive robots for P1 (7) FIRST, then
+        # P2 (15) — the order is load-bearing (round-4 U11): driven 15-first, the
+        # slot-key-memoized defect also ends at 15.0 and the test is green against
+        # the exact defect it names (probed, all four combinations). Assert the
         # shared slot ends at 15.0. THIS IS THE T6 REGRESSION TEST: memoized on
         # the slot key instead of netloc it reads 7.0, the 15 silently discarded.
+        # (Asserting both netlocs in robots_info does NOT discriminate — the
+        # superclass records both under either memo key; probed.)
 
     def test_robots_transport_failure_records_url_with_nulls(self): ...
         # bind a socket, note the port, close it; seed an HTTPS url on that port
@@ -287,16 +300,36 @@ previously specified). For the unit tests, build the downloader yourself and inj
 
 ```python
 install_reactor("twisted.internet.asyncioreactor.AsyncioSelectorReactor")
+loop = asyncio.get_event_loop_policy().get_event_loop()
+asyncio.set_event_loop(loop)          # NOT asyncio.run: it closes the loop, and the
+                                      # next Downloader(crawler) then dies in
+                                      # _start_slot_gc (probed)
 crawler = get_crawler(Spider, {"DOWNLOAD_DELAY": 5.0, "CRAWL_DELAY_CEILING": 60.0,
                                "ROBOTSTXT_OBEY": True, "AUTOTHROTTLE_ENABLED": False})
 crawler.spider = crawler.spidercls.from_crawler(crawler, name="t")
 downloader = Downloader(crawler)                            # needs crawler.spider
-crawler.engine = SimpleNamespace(downloader=downloader)     # the one injection
+
+async def download_async(robotsreq):                        # THE robots transport seam
+    return Response(robotsreq.url, status=200, body=ROBOTS, request=robotsreq)
+    # failure variant: raise ConnectionRefusedError("refused")
+
+crawler.engine = SimpleNamespace(downloader=downloader, download_async=download_async)
 downloader._get_slot(request)                               # mint the slot
 mw = CrawlDelayRobotsMiddleware.from_crawler(crawler)
-# ... drive robots, then assert on
-# downloader.slots[downloader.get_slot_key(request)].delay   (probed: 5.0 -> 7.0)
+loop.run_until_complete(mw.process_request(request))        # the documented path
+# then assert on downloader.slots[downloader.get_slot_key(request)].delay
+# (probed through process_request: happy 5.0 -> 7.0; cap 900 -> 60.0; absent -> 5.0;
+#  disallowed raises IgnoreRequest; transport-fail records the https nulls entry)
 ```
+
+**The `download_async` stub is load-bearing, not decoration** (round-4 U4): without it,
+`robot_parser`'s own `except Exception` (robotstxt.py:102) converts the stub-engine
+`AttributeError` into `_robots_error` → parser `None` → `_apply_delay` never runs and the
+slot silently stays at 5.0 (probed) — a harness bug that presents as a middleware bug,
+and it made every delay test unsatisfiable through the documented path. Amendment 4's
+version of this fence carried a "(probed: 5.0 → 7.0)" that had only been measured by
+driving internal seams the spec never described — retracted; the parenthetical above was
+measured through `process_request`.
 
 `test_delay_survives_ten_responses` and the wall-clock test need real traffic instead:
 run a crawl (`CrawlerProcess`) against the local server and read
@@ -326,6 +359,15 @@ class CrawlDelayRobotsMiddleware(RobotsTxtMiddleware):
         self.DEFAULT_DELAY = crawler.settings.getfloat("DOWNLOAD_DELAY", 5.0)
         self.MAX_DELAY = crawler.settings.getfloat("CRAWL_DELAY_CEILING", 60.0)
         self._applied: set[str] = set()      # netlocs whose delay is now set
+        self._scheme_by_netloc: dict[str, str] = {}   # netloc -> first scheme seen (6a).
+                                             # Round-4 U3: Amendment 4 introduced this
+                                             # attribute in the 6a methods and forgot
+                                             # __init__ -- the robot_parser override then
+                                             # raised AttributeError OUTSIDE the
+                                             # superclass try, killing EVERY request
+                                             # (probed). It must live here, not lazily in
+                                             # 6a: on the _robots_error-first path a lazy
+                                             # init would be swallowed silently instead.
         crawler.robots_info = {}             # netloc -> robots provenance (task 5 reads)
 
     def _apply_delay(self, request, parser):

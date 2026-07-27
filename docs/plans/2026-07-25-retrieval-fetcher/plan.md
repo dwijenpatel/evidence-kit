@@ -78,6 +78,8 @@ Copied verbatim from the PRD and `CLAUDE.md`; every task implicitly includes the
 | *(Amendment 3)* A robots.txt fetch is a recorded attempt — rule 15 applies to it | A recorder rule excluding robots fetches | Rule 15 reads that way ("one manifest entry per attempt, written before interpretation"); A5 gains a real artifact for the robots bytes; and the exclusion would be a second special case stated nowhere the PRD licenses. Costs: every per-host line count gains one, and `--limit` counts only seed-originated 2xx (R5). | Low — one skip rule if reversed, before any manifest exists. |
 | *(Amendment 4, operator-decided)* **A no-response attempt writes a failure line**: the response unit null as a block, a `failure: {class, detail}` object, disposition from `classify_failure`; six pinned classes; recorder gains `process_exception` | Zero lines (a dead host indistinguishable from never-seeded); or a sentinel status | The method requires absence claims to cite a sample and date — the failure line is that warrant; the PRD's founding incident (a timed-out CDX query) is literally a no-response attempt; and `robots-disallowed` is the otherwise-missing producer for PRD §6's second `blocked` ground. A sentinel status is fake fidelity, rejected for the same reason `response_status_line` was. Schema is 23 keys, amended pre-ship, so no migration. | Medium — the XOR and null-unit rules ride the one-way-door schema; dropping the feature later means dead nullable rules, not data loss. |
 | *(Amendment 4)* Robots access **fails open** on an unreadable/unreachable robots.txt — a stated deviation from PRD §6's "fail closed" | Fail closed (block every URL on that host until robots is readable) | The superclass already fails open (probed: empty/garbage/binary robots all allow); failing closed converts a one-window transport error into a recorded inability to fetch — the false-absence shape again. The delay never falls below `DEFAULT_DELAY`, parsed disallow rules are always honoured, and `robots_info` nulls record "we asked" (T21). | Low — one override in the subclass if reversed. |
+| *(Amendment 5, operator-decided)* `useragent_sent` is **nullable**: null exactly when `request_headers` is empty — the robots-disallowed class, whose request dies at priority 100 before the header middlewares run (probed) | Record the configured `USER_AGENT` on those lines | A header that never reached the wire is the same fake fidelity that removed `response_status_line` and forbade a synthesized 599; null is the honest value, and the class is identifiable from `failure.class` anyway (round-4 U1). | Low — a later synthesis rule could fill nulls forward; the reverse (un-faking recorded values) is impossible. |
+| *(Amendment 5, operator-decided)* `DOWNLOAD_TIMEOUT = 30.0`, pinned in task 2 | Inherit scrapy's 180s default | At 180s a hung host holds an unattended run ~15 minutes (robots + four attempts), and every backoff wait enlarges T14's forced-stop window; 30.0 is the value the failure sample was written against (round-4 U2). | Low — one settings line. |
 
 ## Tasks
 
@@ -118,18 +120,20 @@ Every in-scope criterion maps to a task, and every task maps back — no orphans
 | A10 hand-editable seeds with provenance | 1, 2 | Guard rejects a blank `signal`; `read_seeds` round-trip |
 | **A6, A7b** | — | **Deferred to sub-project 2**, stated in Scope |
 
-Self-review, re-run after amendment 4 — every item below is an execution, not a count
+Self-review, re-run after amendment 5 — every item below is an execution, not a count
 read off the prose: `tasks.json` is **generated from the spec `## Checks` fences** (7
-tasks, 137 checks), so spec/manifest drift is impossible by construction and re-verified
-at zero; every check shell-validated (`bash -n`), zero malformed; all 10 negative checks
-swept programmatically for a positive gate on the same path in the same task — 10 of 10
-paired. **Every test named in spec prose is gated by a name grep** (#11); fence-shipped
-tests are enforced by transcription plus the suite run instead. The amended task-2 and
-task-4 fences were extracted and executed: **24/24 pass**. Task 7's shipped code was
-executed at authoring: 12/12 unit tests; its 13th test is e2e and build-time by design.
-Every framework claim in Amendments 3–4 carries a probe row (the two ledgers below) or a
-citation into the round-3 report's independently-verified transcripts; the one ledger
-row round 3 falsified is corrected in place and says so.
+tasks, 140 checks), so spec/manifest drift is impossible by construction and re-verified
+at zero; every check shell-validated (`bash -n`), zero malformed; all 9 negative checks
+(U16 merged two into one alternation) swept programmatically for a positive gate on the
+same path in the same task — 9 of 9 paired. **Every test named in spec prose is gated by
+a name grep** (#11); fence-shipped tests are enforced by transcription plus the suite
+run instead. The amended task-2 and task-4 fences were extracted and executed after
+every amendment round: **24/24 pass** (now including the `DOWNLOAD_TIMEOUT` assertion).
+Task 7's shipped code was executed at authoring: 12/12 unit tests; its 13th test is e2e
+and build-time by design. Every framework claim in Amendments 3–5 carries a probe row,
+a citation into an archived round's independently-verified transcripts, or an in-place
+correction that says so (one round-3 ledger row; Amendment 4's harness parenthetical,
+retracted by U4).
 
 ## Amendment 1 — plan-review blockers F1–F3, 2026-07-25
 
@@ -334,6 +338,49 @@ Validation after applying: **137 checks** regenerated from fences (drift zero by
 construction), `bash -n` clean on all 137, negative-check pairing 10/10 by script, and
 the amended fences executed (24/24).
 
+## Amendment 5 — round 4's 16 findings; U1/U2 operator-decided, 2026-07-27
+
+Operator-directed ("U1 & U2 — your recommendation"; recommendations adopted). Round 4 —
+the first uncapped, executive-tier report — confirmed 16 findings (2 refuted with
+quotes); report archived at [`plan-review-report-round4.md`](plan-review-report-round4.md).
+All 16 applied. Round 4's meta-lesson is recorded as discipline, not just prose:
+**probe-first is necessary but not sufficient — the fence as shipped must be transcribed
+and run**, because both round-4 blockers (U3, U4) lived in Amendment-4 fences whose
+*ideas* had been probed while the fences themselves had not, and U4's fence carried a
+"(probed: 5.0 → 7.0)" that was never measured on the documented path. Every rewrite
+below was executed by a round-4 verifier before being applied; transcripts are in the
+archived report.
+
+| # | Was | Now |
+|---|---|---|
+| **U1** | `useragent_sent` non-nullable, but a robots-disallowed request dies at priority 100 with `headers == {}` (probed ×3) — the flagship failure class had no honest value | **operator-decided**: nullable, null exactly when `request_headers` is empty; never synthesized from settings; decision-log row |
+| **U2** | `DOWNLOAD_TIMEOUT` set nowhere; scrapy default 180s ≈ 15 unattended minutes per hung host; the failure sample presupposed 30 | **operator-decided**: `DOWNLOAD_TIMEOUT = 30.0` in task 2, anchored grep + settings-test assertion; decision-log row |
+| **U3** | Amendment 4's `__init__` fence never created `_scheme_by_netloc`; the override raised outside the superclass try — **every request died** (probed) | one line in `__init__`, with the why-not-lazily note (the `_robots_error`-first path would swallow a lazy init silently) |
+| **U4** | the pinned unit harness's engine stub lacked `download_async`; the robots middleware's own `except` swallowed it — delay silently never applied, five tests unsatisfiable; the fence's "(probed: 5.0 → 7.0)" was never measured on the documented path | harness gains an async `download_async` stub (probed green through `process_request` for every listed unit test) + the `asyncio.run`-closes-the-loop trap named; the false probe claim retracted in place |
+| **U5** | `delay_used_s` read `slots[key]` on failure lines — a pre-downloader death never refreshes `lastseen`, and `_slot_gc` reaps the slot mid-crawl (probed live: present t=0.2s, gone t=130.4s) → KeyError | failure lines read `.get(key)` with the configured `DOWNLOAD_DELAY` as fallback (policy truth, not wire fidelity); response lines keep the subscript |
+| U6 | two universal chain rules disagreed on a redirect-then-death entry | the one-expression rule governs failure lines too (probed: `redirect_urls` present in meta at `process_exception`); negative example added |
+| U7 | the fetch-policy fallback said "exactly two reachable moments", both response-worded; Amendment 4 created a third (the robots fetch's own failure line — probed: `robots_info` empty at its `process_exception`); the `process_exception` bullet never mentioned `fetch_policy` | three moments, response-or-failure worded; the bullet now builds `fetch_policy` by the same rules as a response line |
+| U8 | the two schema samples shared a URL 30s apart and contradicted the `prior_fetch_ref` rule side by side | rule extended ("holds on failure lines too — last-known bytes are the citable absence form"); failure sample moved to a history-free URL |
+| U9 | a guard-legal non-URL seed row killed `async def start()`'s generator — every later seed silently dropped, exit 0 (probed) | the CLI validates every seed URL (scheme ∈ {http, https} + netloc) before the crawler exists; exit 2, `seed url is not fetchable`; the fifth startup failure; task 1's delegation pointer corrected; test + greps gated |
+| U10 | "manifest schema violation → crash the run" unimplementable: middleware raises are handled, `CloseSpider` is swallowed (both probed) | mechanism pinned: `engine.close_spider(spider, "manifest-schema-violation")` + re-raise; CLI exits **1** on that `finish_reason` (probed working); T18's exit-0 scoped; test gated |
+| U11 | the T6 regression test was order-dependent — driven 15-first it cannot fail (probed, all four combinations) | drive order pinned 7-first, with the disproof of the robots_info-membership alternative noted |
+| U12 | "unusable robots response" undefined; the fence already hashed every delivered body while the prose promised nulls nothing could produce | pinned to the fence's reading: every delivered response records its digest, whatever the status (a 404's digest is the honest answer); nulls have exactly one producer — the no-response error path |
+| U13 | "assert zero wire responses" against a closed port was vacuous (no server, no counter); the bound-not-listening alternative yields `timeout`, not `connection-refused` (probed) | fixture pinned bind-then-close; assertions moved to the manifest (5 failure lines, classes, null statuses) + empty cache tree |
+| U14 | the errback's backoff deferral had no instrument and none is honestly constructible (full jitter, lower bound 0; ~0.6s scheduling floor — probed) | stated as a review obligation, with what the tests DO catch pinned (a bare-`Deferred` errback loses the retry — probed: 1 attempt, not 4); receiver pinned `failure.request` (probed) |
+| U15 | task 6's "Restated in full" Consumes block omitted the two task-4 functions item 7a calls | block extended (signatures + return type + `max_attempts` default); the misuse reading was refuted — item 7a pins the call verbatim |
+| U16 | the nine-name comment ban was enforced for one name; `record.py` unguarded for eight | one recursive alternation over the package (verified red against a seeded `simhash64`, green on a clean tree); `extractor` covers `extractor_version` by prefix |
+
+Refuted in round 4, unchanged here: the robots failure line's disposition (pinned by
+"comes from `classify_failure` … never `classify_status`" — `retry` is a statement about
+that attempt; the parser cache is per-crawl and the next run re-asks), and the
+`max_attempts`-hardcode mutation gap (task 4 is `code-complete`; a hardcode is a
+transcription failure, foreclosed by executing the fences).
+
+Validation after applying: checks regenerated from fences (drift zero by construction),
+`bash -n` clean, negative-check pairing swept by script, the amended task-2 fences
+re-extracted and executed, and the two new anchored greps demonstrated red against their
+named defects.
+
 ## Ratification
 
 - **ratified-by:** *pending*
@@ -344,10 +391,16 @@ the amended fences executed (24/24).
   operator-directed ("fix the whole set")
 - **amended (round 4):** T1–T21 + P1 + the T3 operator decision (failure lines),
   2026-07-26, pre-ratification, operator-directed
-- **review disposition:** rounds 1–3 fully applied — 26 + 15 + 22 findings
+- **amended (round 5):** U1–U16, with U1/U2 operator-decided (recommendations adopted),
+  2026-07-27, pre-ratification, operator-directed
+- **review disposition:** rounds 1–4 fully applied — 26 + 15 + 22 + 16 findings
   ([round 1](plan-review-report-round1.md) · [round 2](plan-review-report-round2.md) ·
-  [round 3](plan-review-report-round3.md)); nothing outstanding. Amendment 4 changed
-  mechanism prose and the schema, so a **round-4 lean re-review is due before
-  ratification** — operator-directed, not yet run.
+  [round 3](plan-review-report-round3.md) · [round 4](plan-review-report-round4.md));
+  nothing outstanding. Amendment 5 changed mechanism prose again, so per the skill a
+  **round-5 lean re-review is due before ratification** — operator-directed, not yet
+  run. Trend across rounds: 26 → 15 → 22 → 16 confirmed, with the translator
+  (ambiguity) instrument silent since round 3 and the surviving defect classes
+  narrowing to fences-not-executed and seams between amendment rules — both now under
+  explicit discipline.
 
 Any edit after ratification voids it.

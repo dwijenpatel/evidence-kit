@@ -42,6 +42,14 @@ def parse_retry_after(value: str | None, now: datetime) -> float | None
 def classify_status(status: int, attempt: int, max_attempts: int = 3) -> Disposition
                                                                         # attempt is 0-BASED
 class Disposition(enum.Enum): OK / RETRY / BLOCKED / FATAL
+
+FAILURE_CLASSES = ("dns-failure", "connection-refused", "timeout", "tls-error",
+                   "robots-disallowed", "other")
+def failure_class_for(exc_type_name: str, detail: str = "") -> str
+def classify_failure(failure_class: str, attempt: int,
+                     max_attempts: int = 3) -> Disposition   # attempt is 0-BASED;
+                                                             # item 7a compares the
+                                                             # result `is Disposition.RETRY`
 ```
 
 ## Provides
@@ -96,9 +104,11 @@ the wire.
 **Every completed crawl exits 0** (round-3 T18) — including a run whose URLs all ended
 `blocked` or `fatal`: the run did its job; `blocked` is a claim about an attempt
 sequence, never about the world (task 4), and a nonzero exit would make one dead host
-fail a multi-host crawl. Nonzero exits are reserved for the four startup failures
-(exit 2) and an unhandled crash. A subprocess test may therefore assert
-`returncode == 0` on any run that reached the reactor. **The pinned command's
+fail a multi-host crawl. Nonzero exits are reserved for the **five** startup failures
+(exit 2 — U9 added seed-URL validation to the original four), a manifest schema
+violation (exit **1** — see the error model, U10), and an unhandled crash. A subprocess
+test may therefore assert `returncode == 0` on any run that reached the reactor **with
+no schema violation**. **The pinned command's
 `--project fetcher` is RELATIVE and uv resolves it against the process cwd** (round-3
 T7, probed: from a foreign cwd it degrades to `Project directory 'fetcher' does not
 exist` + `No module named evidence_fetch`) — any test invoking it as a subprocess runs
@@ -106,8 +116,17 @@ with **cwd = the repository root**, or passes an absolute `--project` path.
 
 ## Behaviour, pinned
 
-1. Read seeds. A `SeedFormatError` exits **2** before any network call. Never start a
-   partial crawl from a malformed queue.
+1. Read seeds. A `SeedFormatError` exits **2** before any network call. **Then validate
+   every seed URL before the crawler is created** (round-4 U9): `urlparse(url)` must
+   yield a scheme in `{http, https}` and a non-empty netloc; any failing row exits **2**
+   with a message containing `seed url is not fetchable` plus the offending value.
+   Task 1 deliberately lets a Seeds row hold a not-yet-fetchable source description, so
+   the guard never catches this — and without this gate, `scrapy.Request(bad_url)`
+   raises `ValueError` **inside `async def start()`**, which kills the async generator:
+   every later seed is silently dropped while the run reports `finish_reason: finished`
+   and exits 0 (probed; Scrapy logs one ERROR naming the bad URL, and nothing about the
+   seeds it cost). Never start a partial crawl from a malformed queue — this rule is
+   why that sentence exists, not just `SeedFormatError`.
 2. Load the prior index from the manifest once at start.
 3. Enqueue every seed URL **from `async def start()`**. In scrapy 2.17.0 the classic
    `start_requests()` is consulted by **nothing** — it survives only in a docstring, and
@@ -202,8 +221,18 @@ with **cwd = the repository root**, or passes an absolute `--project` path.
    for all four transport classes). The errback's job is the retry decision only:
    `fc = failure_class_for(type(failure.value).__name__, str(failure.value))`;
    on `classify_failure(fc, zero_based) is Disposition.RETRY`, reschedule with the same
-   pinned `replace(dont_filter=True, meta={…, "attempt_n": n + 1})` construction after
-   `backoff_delay(zero_based)` seconds — there is no `Retry-After` without a response.
+   pinned construction — the receiver is **`failure.request`** (probed:
+   `failure.request.replace(dont_filter=True, meta={…, "attempt_n": n + 1})` works) —
+   after `backoff_delay(zero_based)` seconds; there is no `Retry-After` without a
+   response. **The errback's deferral is not test-enforced and is a review obligation**
+   (round-4 U14): `backoff_delay` is full jitter — `rand()` is uniform on [0, 1], so
+   the delay's lower bound is 0 for every attempt — and the measured scheduling floor
+   between consecutive transport failures is ~0.6s at `DOWNLOAD_DELAY = 0` (probed),
+   so no wall-clock assertion can distinguish a correctly deferred retry from an
+   immediate re-yield without an injectable `rand` this plan does not specify. What
+   the gated tests DO catch is a deferral that loses the retry: returning a bare
+   `Deferred` from the errback reschedules nothing (probed: 1 attempt instead of 4),
+   which the transport-dead test's `attempt_n` 1–4 assertion turns red.
    On `BLOCKED`, do nothing: the line is written, and `blocked` is a claim about this
    attempt sequence, never about the world. Worked example — a dns-dead seed host,
    default `max_attempts=3`: the host's robots fetch fails once (its own failure line),
@@ -303,13 +332,36 @@ test_retry_after_header_defers_the_retry       # T5: the F5 regression, and the 
                                                # test proves nothing (the same
                                                # discriminance rule Amendment 1 fixed
                                                # in the crawl-delay timing test).
-test_transport_dead_seed_writes_failure_lines  # T3: seed a closed port; assert zero
-                                               # wire responses, and failure lines
-                                               # attempt_n 1-4 with dispositions
-                                               # retry x3, blocked, each with
-                                               # failure.class "connection-refused"
-                                               # (plus the host's own robots failure
-                                               # line, seed_signal null)
+test_transport_dead_seed_writes_failure_lines  # T3, fixture pinned by U13: bind
+                                               # 127.0.0.1:0, read the port, CLOSE the
+                                               # socket, seed that port — bind-then-
+                                               # close is the ONLY construction that
+                                               # yields connection-refused; a socket
+                                               # held bound but never listening times
+                                               # out instead -> class "timeout"
+                                               # (probed). Assert the MANIFEST, not a
+                                               # hit counter — there is no server, so
+                                               # "zero wire responses" is vacuously
+                                               # true of every implementation: exactly
+                                               # 5 failure lines (1 robots,
+                                               # seed_signal null, + 4 for the seed,
+                                               # attempt_n 1-4, retry x3 then
+                                               # blocked, every one http_status null,
+                                               # class "connection-refused"), and
+                                               # <cache-root>/sha256/ contains zero
+                                               # files.
+test_non_url_seed_exits_2_before_any_request  # U9: a guard-legal non-URL row ->
+                                               # exit 2, message contains
+                                               # `seed url is not fetchable`; server
+                                               # records zero hits; without the gate
+                                               # the start() generator dies and later
+                                               # seeds silently vanish (probed)
+test_manifest_schema_violation_exits_nonzero   # U10: force the recorder to build an
+                                               # invalid entry (e.g. monkeypatched
+                                               # REQUIRED_KEYS in a subprocess env or
+                                               # a fixture hook); assert exit 1 and
+                                               # finish_reason
+                                               # manifest-schema-violation
 test_robots_disallowed_seed_writes_blocked_line # T3: live server, robots Disallow on
                                                # the seed path; assert one failure
                                                # line, class "robots-disallowed",
@@ -353,7 +405,8 @@ counts hits per path so "zero fetches" is directly assertable rather than inferr
 | Cache root / manifest parent absent | created on demand; not an error | — |
 | Empty seed table | exit 0, zero requests, manifest untouched | — |
 | Duplicate seed URL | first row wins; later rows logged at WARNING | `duplicate seed` |
-| Manifest schema violation | crash the run | `missing required key` |
+| Non-URL seed row (guard-legal by task 1's design) | exit 2, before the crawler is created — the fifth startup failure (U9) | `seed url is not fetchable` |
+| Manifest schema violation | the recorder calls `crawler.engine.close_spider(spider, "manifest-schema-violation")` and re-raises; the CLI reads `crawler.stats.get_value("finish_reason")` after the reactor stops and exits **1** on that reason (round-4 U10). **This does NOT mean raising is enough** — an exception out of `process_response` is caught as that request's download error and the crawl continues to exit 0 (probed); nor is `CloseSpider` enough — from a downloader middleware it is swallowed the same way (probed) | `missing required key` |
 
 **"A single URL fails all retries" and "Manifest schema violation" differ on purpose.** A dead
 host is expected and must not stop a multi-host crawl. A manifest schema violation is a bug in
@@ -398,6 +451,9 @@ grep -qF 'test_httpcache_lands_under_the_cache_root' fetcher/tests/test_spider.p
 grep -qF 'test_retry_after_header_defers_the_retry' fetcher/tests/test_spider.py
 grep -qF 'test_transport_dead_seed_writes_failure_lines' fetcher/tests/test_spider.py
 grep -qF 'test_robots_disallowed_seed_writes_blocked_line' fetcher/tests/test_spider.py
+grep -qF 'test_non_url_seed_exits_2_before_any_request' fetcher/tests/test_spider.py
+grep -qF 'test_manifest_schema_violation_exits_nonzero' fetcher/tests/test_spider.py
+grep -qF -- 'seed url is not fetchable' fetcher/evidence_fetch/cli.py
 grep -qF -- '--contact is required' fetcher/evidence_fetch/cli.py
 grep -qF 'HTTPCACHE_DIR' fetcher/evidence_fetch/cli.py
 grep -qF 'HTTPERROR_ALLOW_ALL' fetcher/evidence_fetch/spiders/fetch.py

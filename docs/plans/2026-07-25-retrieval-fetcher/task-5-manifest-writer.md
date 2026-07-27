@@ -129,8 +129,8 @@ actually known:
 ```json
 {
   "schema": 1,
-  "url_requested": "https://example.com/pricing",
-  "url_final": "https://example.com/pricing",
+  "url_requested": "https://example.com/status",
+  "url_final": "https://example.com/status",
   "attempt_n": 1,
   "fetched_at": "2026-07-25T19:04:41.010Z",
   "http_status": null,
@@ -141,7 +141,7 @@ actually known:
   "content_type": null,
   "request_headers": {"User-Agent": "evidence-fetch/0.1 (+mailto:…)", "Accept": "*/*"},
   "response_headers": null,
-  "redirect_chain": ["https://example.com/pricing"],
+  "redirect_chain": ["https://example.com/status"],
   "etag": null,
   "etag_is_weak": null,
   "last_modified": null,
@@ -151,7 +151,7 @@ actually known:
   "useragent_sent": "evidence-fetch/0.1 (+mailto:…)",
   "prior_fetch_ref": null,
   "seed_signal": "operator noticed it in a discussion",
-  "failure": {"class": "timeout", "detail": "Getting https://example.com/pricing took longer than 30.0 seconds."}
+  "failure": {"class": "timeout", "detail": "Getting https://example.com/status took longer than 30.0 seconds."}
 }
 ```
 
@@ -162,7 +162,8 @@ no-response attempt, and `failure.class: "robots-disallowed"` is the producer fo
 §6's second `blocked` ground, which otherwise has none. **No sentinel status and no
 empty-body artifact** — a synthesized `599` or a cached `b""` is fake fidelity, the same
 reason `response_status_line` was removed. One carve-out: a request that dies **before
-scheduling** (malformed seed URL) is a startup error, not a manifest line — nothing was
+scheduling** (a non-URL seed row) is a startup error — task 6 item 1 validates every
+seed URL and exits 2 before the crawler exists (U9) — not a manifest line; nothing was
 attempted.
 
 **Field notes where a reader could go wrong:**
@@ -173,8 +174,19 @@ attempted.
   (T3):
   - **On every line**, nullable: `content_type` (header absent), `response_protocol`
     (Scrapy exposes none), `etag`, `etag_is_weak` (`null` exactly when `etag` is),
-    `last_modified`, `prior_fetch_ref`, `seed_signal`, and
+    `last_modified`, `prior_fetch_ref`, `seed_signal`, `useragent_sent` (see its rule
+    below — round-4 U1, operator-decided), and
     `fetch_policy.robots_sha256` / `robots_fetched_at`.
+  - `useragent_sent` is the `User-Agent` value **in `request.headers`**, and is `null`
+    **exactly when `request_headers` is empty** — the robots-disallowed class, where
+    `RobotsTxtMiddleware` (100) raises `IgnoreRequest` before `DefaultHeadersMiddleware`
+    (400) and `UserAgentMiddleware` (500) run, so the recorder at 1000 sees
+    `headers == {}` (probed, 2.17.0; `request_headers` itself is then `{}`, an object,
+    never null). Transport-death lines are unaffected: the request has already passed
+    500 and carries the full header set (probed). **This does NOT mean falling back to
+    the configured `USER_AGENT`** — recording a header that never reached the wire is
+    the same fake fidelity that removed `response_status_line` and forbade a synthesized
+    599.
   - **The response unit** — `http_status`, `response_protocol`, `raw_bytes_sha256`,
     `raw_bytes_length`, `cache_relpath`, `content_type`, `response_headers`, `etag`,
     `etag_is_weak`, `last_modified` — **is null as a block exactly when `failure` is
@@ -182,7 +194,13 @@ attempted.
     validated by `append_entry`: `(entry["http_status"] is None) == (entry["failure"] is
     not None)`, and on a failure line every response-unit field must be null. Everything
     outside the two lists above is never `null` on any line — `url_final` and
-    `redirect_chain` stay non-null on a failure line (`[url_requested]`, requested).
+    `redirect_chain` stay non-null on a failure line, and they come from **the same one
+    expression as every other entry** — `redirect_urls + [request.url]`, `url_final =
+    request.url` (round-4 U6; probed: a request that timed out after a 301 carries
+    `redirect_urls: ["…/a"]` in meta at `process_exception`, so its chain is
+    `["…/a", "…/b"]` and its `url_final` is the dead hop, `"…/b"`). **This does NOT mean
+    a failure line's chain is always `[url_requested]`** — that is only the no-redirect
+    case, which the sample below shows.
 - `failure` is `null` on a response line, else an object with **exactly**
   `{"class": <one of task 4's FAILURE_CLASSES>, "detail": <str(exception), verbatim>}` —
   validated by `append_entry` (class membership included). `disposition` on a failure
@@ -232,7 +250,23 @@ attempted.
   `False` on every response). It survives because `_slot_gc` reaps only slots that are
   both inactive **and** idle past `lastseen + delay` on a 60s loop, and `lastseen` was
   set by this very request. **This does NOT mean a `slots[…]` read may assume an active
-  request.** With `RANDOMIZE_DOWNLOAD_DELAY = False` the configured and actual delays
+  request.** **And the survival argument covers `process_response` only** (round-4 U5):
+  a request that dies **before the downloader** — the robots-disallowed class, and any
+  `process_request` exception — never enters a slot (probed: no `download_slot` in its
+  meta) and never refreshes `lastseen`, so `_slot_gc` can reap its host's slot while the
+  request is still queued (probed live inside one crawl at default settings:
+  `slot_present true` at t=0.2s, **`false` at t=130.4s**, same host and key). On a
+  **failure line** the recorder therefore reads
+
+  ```python
+  slot = downloader.slots.get(get_slot_key(request))
+  delay_used_s = slot.delay if slot is not None else settings.getfloat("DOWNLOAD_DELAY")
+  ```
+
+  — the fallback is the configured floor that *would* have applied, a true statement
+  about policy, never a synthesized wire value. **This does NOT mean `.get()` on a
+  response line** — there the subscript is correct and a `.get()` would hide a real bug.
+  With `RANDOMIZE_DOWNLOAD_DELAY = False` the configured and actual delays
   coincide. The three robots fields come from `crawler.robots_info[netloc]` (task 3);
   never from a second robots.txt GET.
 - **When `robots_info` has no entry for the request's netloc at record time**, the three
@@ -240,18 +274,25 @@ attempted.
   `robots_sha256` and `robots_fetched_at` `null` — synthesized with **netloc, port
   kept**, matching how the robots middleware itself builds the URL (probed:
   `f"{url.scheme}://{url.netloc}/robots.txt"`; a hostname-only synthesis names a
-  different origin on every rule-19 test server). Exactly two reachable moments need
-  this (plan-review R6): **the robots.txt response's own entry** — the recorder at 1000
-  runs before the robots middleware (100) stores `robots_info`, probed at source — and
-  a response on a host whose robots fetch died in transport before task 3's error hook
-  ran. **This does NOT license a second robots GET**, and `delay_used_s` still reads the
-  live slot.
+  different origin on every rule-19 test server). Exactly **three** reachable moments
+  need this (R6, extended by round-4 U7 — Amendment 4's failure lines created the
+  third): **the robots.txt fetch's own entry — response or failure line alike** (the
+  recorder at 1000 runs before the robots middleware at 100 stores `robots_info`;
+  probed at source for the response path, and probed live for the failure path: at the
+  robots request's `process_exception` the dict is still empty, `_robots_error` runs
+  only after); and **any entry on a host whose robots fetch died in transport before
+  task 3's error hook ran**. **This does NOT license a second robots GET**, and
+  `delay_used_s` still reads the live slot (via the failure-line `.get()` rule above
+  where applicable).
 - `redirect_chain` **always includes the requested URL as element 0**, so a non-redirected
   fetch has a one-element chain, never an empty one. `url_final` equals the chain's last
   element.
 - `prior_fetch_ref` is the `raw_bytes_sha256` of the most recent prior **2xx** fetch of the
   same `url_requested`, or `null` on first fetch. It is deliberately the digest, not an entry
   id: the digest is what a recheck diffs against, and it needs no id scheme to stay stable.
+  **This holds on failure lines too** (round-4 U8) — "unreachable as of `<date>`, last known
+  bytes `<digest>`" is the citable form of the absence finding the failure line exists to
+  warrant. `null` on a failure line means only "no prior 2xx of this URL in the manifest."
 - `seed_signal` is copied from the `Seeds` row that queued this URL (it travels in
   `request.meta`, so redirect hops inherit it); `null` exactly when **no Seeds row queued
   it** — a host's `/robots.txt` fetch, a link-followed URL (none exist in v1), or a
@@ -379,10 +420,13 @@ anything's prior reference.
   `download_async` wraps the whole `_process_request` in try/except;
   `methods["process_exception"]` is `appendleft`ed). The failure line is built there:
   `failure_class_for(type(exc).__name__, str(exc))` → class; `classify_failure(class,
-  zero_based)` → disposition; response unit null; return `None` so the chain re-raises
-  and the spider's errback still fires (probed: errbacks fired for all four transport
-  classes). `attempt_n` and `seed_signal` come from `request.meta.get(...)` with the
-  task-6 defaults.
+  zero_based)` → disposition; response unit null; **`fetch_policy` built by the same
+  rules as a response line** — slot delay via the failure-line `.get()` rule, robots
+  fields from `robots_info` or the three-moment fallback (U7); return `None` so the
+  chain re-raises and the spider's errback still fires (probed: errbacks fired for all
+  four transport classes). `attempt_n` and `seed_signal` come from
+  `request.meta.get(...)` with the task-6 defaults; `useragent_sent` from
+  `request.headers` per its rule (null on the robots-disallowed class — U1).
 - It must record even when a later middleware will raise. Read the installed Scrapy for the
   exact registration mechanics — that seam is why the task is `contract`; the priority and
   the rules above are not seams, they are pinned.
@@ -447,8 +491,7 @@ test -f fetcher/evidence_fetch/middlewares/record.py
 grep -qF 'cache_relpath' fetcher/evidence_fetch/manifest.py
 grep -qF 'REQUIRED_KEYS' fetcher/evidence_fetch/manifest.py
 grep -qF 'response_protocol' fetcher/evidence_fetch/manifest.py
-! grep -qF 'validators_sent' fetcher/evidence_fetch/manifest.py
-! grep -rqF 'normalized_content_sha256' fetcher/evidence_fetch/
+! grep -rqE 'validators_sent|conditional_hit|normalized_content_sha256|normalized_char_count|simhash64|source_class|change_class|extractor' fetcher/evidence_fetch/
 grep -qF '"cached"' fetcher/evidence_fetch/middlewares/record.py
 grep -qF 'get_slot_key' fetcher/evidence_fetch/middlewares/record.py
 grep -qF 'test_append_then_load_roundtrips' fetcher/tests/test_manifest.py
@@ -477,8 +520,9 @@ uv run --project fetcher python -m unittest discover -s fetcher/tests -t fetcher
 Every test in "Tests to write" is gated by a name grep (#11) — the review found the plan
 claiming "test gated" for tests no check named, two of them cited in the coverage table.
 
-The negative check on `normalized_content_sha256` is scoped to the whole
-`fetcher/evidence_fetch/` package, not one file — the review showed the one-file version
-was blind to the field being written in `record.py`, the very module this task creates.
-`record.py` also now carries its own `test -f`, so the negative checks in this task cannot
-pass vacuously.
+The forbidden-name check is one recursive alternation over the whole
+`fetcher/evidence_fetch/` package (round-4 U16): the prose bans nine names package-wide,
+but the earlier checks enforced one name recursively, one name in one file, and seven
+nowhere — `record.py`, the very module this task creates, was unguarded for eight of
+nine. `extractor` covers `extractor_version` by prefix. `record.py` and `manifest.py`
+carry their own `test -f`, so the negative checks in this task cannot pass vacuously.

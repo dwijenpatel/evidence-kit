@@ -174,7 +174,9 @@ Then add this method to `CorpusLinkTests`, immediately after
 
 **This does NOT mean** the guard validates that `url` parses as a URL. A seed may name a
 source that is not yet a fetchable URL ("the pricing page linked from X's docs"); narrowing
-that is task 2's problem, not the guard's.
+that is the fetcher's problem, not the guard's — task 6's CLI validates fetchability at
+run time (scheme + netloc, exit 2 on a non-URL row; round-4 U9) so that such a row can
+sit in the queue as a note without silently voiding the seeds after it.
 
 ## Step 4 — fixtures
 
