@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 
 import scrapy
 
-from evidence_fetch.backoff import (Disposition, backoff_delay, classify_status,
+from evidence_fetch.backoff import (Disposition, backoff_delay, classify_failure,
+                                    classify_status, failure_class_for,
                                     parse_retry_after)
 from evidence_fetch.seeds import read_seeds
 
@@ -46,6 +47,7 @@ class FetchSpider(scrapy.Spider):
             yield scrapy.Request(
                 seed.url,
                 callback=self.parse,
+                errback=self.on_error,
                 meta={"attempt_n": 1, "seed_signal": seed.signal},
                 dont_filter=False,
             )
@@ -73,3 +75,20 @@ class FetchSpider(scrapy.Spider):
         yield response.request.replace(
             dont_filter=True,
             meta={**response.request.meta, "attempt_n": n + 1})
+
+    async def on_error(self, failure):
+        # Transport failures reach the spider only here; the recorder has
+        # already written the failure line by the time this runs. This method's
+        # whole job is the retry decision — there is no Retry-After without a
+        # response, so pacing is always our own backoff.
+        request = failure.request
+        n = request.meta.get("attempt_n", 1)
+        zero_based = n - 1
+        failure_class = failure_class_for(type(failure.value).__name__,
+                                          str(failure.value))
+        if classify_failure(failure_class, zero_based) is not Disposition.RETRY:
+            return
+        await asyncio.sleep(backoff_delay(zero_based))
+        yield request.replace(
+            dont_filter=True,
+            meta={**request.meta, "attempt_n": n + 1})
